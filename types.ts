@@ -8,7 +8,7 @@ export enum UserRole {
 export interface User {
   id: string;
   username: string;
-  password?: string; // Campo adicionado para segurança
+  password?: string;
   name: string;
   role: UserRole;
   active: boolean;
@@ -69,6 +69,7 @@ export interface CallRecord {
 
 export interface Protocol {
   id: string;
+  protocolNumber?: string;
   clientId: string;
   openedByOperatorId: string;
   ownerOperatorId: string;
@@ -92,22 +93,12 @@ export interface Protocol {
 export interface ProtocolEvent {
   id: string;
   protocolId: string;
-  eventType: 'created' | 'status_changed' | 'department_changed' | 'category_changed' | 'priority_changed' | 'note_added' | 'owner_changed' | 'closed' | 'reopened';
+  eventType: string;
   oldValue?: string;
   newValue?: string;
   note?: string;
-  createdByUserId: string;
+  actorId: string; // Alinhado com actor_id do SQL
   createdAt: string;
-}
-
-export interface ProtocolConfirmation {
-  id: string;
-  protocolId: string;
-  callId: string;
-  result: 'Sim' | 'Parcial' | 'Não';
-  confirmedAt: string;
-  operatorId: string;
-  satisfactionScore: number; // 0-100
 }
 
 export interface Question {

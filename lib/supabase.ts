@@ -1,9 +1,6 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 
-/**
- * Utilitário seguro para obter variáveis de ambiente.
- */
 const getEnv = (key: string): string => {
   // @ts-ignore
   let envValue = (typeof process !== 'undefined' && process.env?.[key]) || 
@@ -25,13 +22,8 @@ const getEnv = (key: string): string => {
 const supabaseUrl = getEnv('VITE_SUPABASE_URL');
 const supabaseAnonKey = getEnv('VITE_SUPABASE_ANON_KEY');
 
-// Cliente padrão com persistência de sessão (localStorage)
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-/**
- * Cria um cliente Supabase temporário que NÃO persiste sessão.
- * Usado para criar usuários (signUp) sem deslogar o administrador atual.
- */
 export const createAuthClient = () => createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: false,
@@ -40,9 +32,6 @@ export const createAuthClient = () => createClient(supabaseUrl, supabaseAnonKey,
   }
 });
 
-/**
- * Normaliza strings para slugs
- */
 export const slugify = (text: string) => {
   if (!text) return '';
   return text
@@ -50,10 +39,10 @@ export const slugify = (text: string) => {
     .toLowerCase()
     .trim()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/[^\w-]+/g, '')
-    .replace(/--+/g, '-');
+    .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+    .replace(/[^a-z0-9]/g, '-')     // Substitui qualquer não alfanumérico por hífem
+    .replace(/-+/g, '-')            // Remove hifens duplos
+    .replace(/^-+|-+$/g, '');       // Remove hifens no início ou fim
 };
 
 export const normalizePhone = (phone: string) => {
@@ -63,9 +52,11 @@ export const normalizePhone = (phone: string) => {
 export const getInternalEmail = (username: string) => {
   if (!username) return '';
   const trimmed = username.trim().toLowerCase();
-  if (trimmed.includes('@') && trimmed.split('@')[1].includes('.')) {
+  
+  if (trimmed.includes('@') && trimmed.includes('.')) {
     return trimmed;
   }
-  const slug = slugify(username);
-  return `${slug}@telemarketing-dreon.com.br`;
+  
+  const slug = slugify(trimmed);
+  return `${slug}@dreon-telemarketing.com.br`;
 };

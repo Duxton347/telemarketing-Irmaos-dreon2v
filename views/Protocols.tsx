@@ -4,7 +4,7 @@ import {
   Search, User, Plus, X, 
   History, UserCheck, Clock, CheckCircle2, 
   Play, RotateCcw, UserPlus, Save, MessageSquare, AlertTriangle, MoreVertical,
-  ChevronRight, ThumbsUp, ThumbsDown
+  ChevronRight, ThumbsUp, ThumbsDown, Loader2
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { Protocol, ProtocolStatus, UserRole, ProtocolEvent, User as UserType, Client } from '../types';
@@ -17,6 +17,7 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
   const [clients, setClients] = React.useState<Client[]>([]);
   const [operators, setOperators] = React.useState<UserType[]>([]);
   const [protocolEvents, setProtocolEvents] = React.useState<ProtocolEvent[]>([]);
+  const [isLoading, setIsLoading] = React.useState(false);
   
   const [search, setSearch] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<string>('all');
@@ -53,8 +54,8 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
     ownerOperatorId: user.id
   });
 
-  // Correctly await asynchronous data fetching
   const loadData = React.useCallback(async () => {
+    setIsLoading(true);
     try {
       const [allProtocols, allClients, allUsers] = await Promise.all([
         dataService.getProtocols(),
@@ -72,12 +73,13 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
       setProtocols(visible);
     } catch (e) {
       console.error("Erro ao carregar dados dos protocolos:", e);
+    } finally {
+      setIsLoading(false);
     }
   }, [user]);
 
   React.useEffect(() => { loadData(); }, [loadData]);
 
-  // Fetch events when a protocol is selected
   React.useEffect(() => {
     const fetchEvents = async () => {
       if (selectedProtocol) {
@@ -109,12 +111,11 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
 
     if (!clientId) return alert("Erro ao identificar ou criar cliente.");
 
-    const pId = 'PR' + Math.random().toString(36).substr(2, 5).toUpperCase();
     const slaHours = PROTOCOL_SLA[newProto.priority] || 48;
     const now = new Date();
 
     const p: Protocol = {
-      id: pId,
+      id: '',
       clientId,
       openedByOperatorId: user.id,
       ownerOperatorId: newProto.ownerOperatorId || user.id,
@@ -146,7 +147,6 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
         ownerOperatorId: user.id
       });
       await loadData();
-      alert(`Protocolo #${pId} aberto com sucesso!`);
     }
   };
 
@@ -157,13 +157,14 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
       return;
     }
 
-    if (await dataService.updateProtocol(pId, { status }, user.id)) {
+    if (await dataService.updateProtocol(pId, { status }, user.id, `Status alterado para ${status}`)) {
       await loadData();
     }
   };
 
   const handleAdminApprove = async (pId: string) => {
-    if (confirm("Confirmar resolução e ENCERRAR este protocolo definitivamente?")) {
+    setIsLoading(true);
+    try {
       const success = await dataService.updateProtocol(
         pId, 
         { status: ProtocolStatus.FECHADO, closedAt: new Date().toISOString() }, 
@@ -173,10 +174,15 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
       
       if (success) {
         await loadData();
-        alert("Protocolo Aprovado e Encerrado com sucesso!");
+        alert("Protocolo Aprovado e Encerrado!");
       } else {
         alert("Erro ao tentar atualizar o protocolo.");
       }
+    } catch (e) {
+      console.error(e);
+      alert("Falha técnica ao aprovar.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -210,7 +216,7 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
       setResolveProtocol(null);
       setResolveForm({ summary: '', satisfaction: 'Boa', repurchase: 'Sim' });
       await loadData();
-      alert("Protocolo enviado para aprovação do gestor!");
+      alert("Protocolo enviado para aprovação!");
     }
   };
 
@@ -242,14 +248,7 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
           <p className="text-slate-500 text-sm font-medium">Controle de incidentes Dreon.</p>
         </div>
         <button 
-          onClick={() => {
-            setNewProto(prev => ({ 
-              ...prev, 
-              ownerOperatorId: user.id, 
-              departmentId: config.departments[0]?.id || '' 
-            }));
-            setIsNewModalOpen(true);
-          }}
+          onClick={() => setIsNewModalOpen(true)}
           className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl hover:bg-blue-700 transition-all flex items-center gap-2"
         >
           <Plus size={18} /> Novo Protocolo
@@ -283,7 +282,13 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
+      <div className="grid grid-cols-1 gap-4 relative min-h-[200px]">
+        {isLoading && (
+          <div className="absolute inset-0 bg-slate-50/50 backdrop-blur-[2px] z-10 flex items-center justify-center rounded-[32px]">
+            <Loader2 className="animate-spin text-blue-600" size={40} />
+          </div>
+        )}
+        
         {filtered.map(p => {
           const client = clients.find(c => c.id === p.clientId);
           const owner = operators.find(o => o.id === p.ownerOperatorId);
@@ -293,14 +298,14 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
           const isClosed = p.status === ProtocolStatus.FECHADO;
 
           return (
-            <div key={p.id} className={`bg-white p-6 rounded-[32px] border-2 transition-all flex flex-col md:flex-row gap-6 items-center ${isPendingConfirm ? 'border-orange-200 bg-orange-50/10' : isClosed ? 'border-green-100' : 'border-slate-50 hover:border-blue-100'}`}>
+            <div key={p.id} className={`bg-white p-6 rounded-[32px] border-2 transition-all flex flex-col md:flex-row gap-6 items-center ${isPendingConfirm ? 'border-orange-200 bg-orange-50/10' : isClosed ? 'border-green-100 opacity-80' : 'border-slate-50 hover:border-blue-100'}`}>
               <div onClick={() => setSelectedProtocol(p)} className="flex-1 space-y-2 w-full cursor-pointer">
                 <div className="flex items-center gap-3">
                   <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${
-                    isPendingConfirm ? 'bg-orange-100 text-orange-600' : 
+                    isPendingConfirm ? 'bg-orange-100 text-orange-600 animate-pulse' : 
                     isClosed ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-500'
-                  }`}>{isClosed ? 'APROVADO / FECHADO' : p.status}</span>
-                  <span className="text-[10px] font-black text-slate-300">#{p.id}</span>
+                  }`}>{p.status}</span>
+                  <span className="text-[10px] font-black text-slate-300">#{p.id?.substring(0,8)}</span>
                 </div>
                 <h3 className="text-lg font-black text-slate-800 leading-tight truncate">{p.title}</h3>
                 <div className="flex flex-wrap items-center gap-4 text-[10px] font-bold text-slate-400 uppercase">
@@ -311,33 +316,38 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
               
               <div className="flex items-center gap-4 shrink-0">
                 <div className="flex gap-2">
-                  {/* AÇÕES OPERADOR */}
+                  {/* BOTÕES OPERADOR */}
                   {isOwner && p.status === ProtocolStatus.ABERTO && (
-                    <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(p.id, ProtocolStatus.EM_ANDAMENTO); }} title="Iniciar Atendimento" className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm">
+                    <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(p.id, ProtocolStatus.EM_ANDAMENTO); }} title="Iniciar" className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm">
                       <Play size={16} />
                     </button>
                   )}
                   {isOwner && (p.status === ProtocolStatus.ABERTO || p.status === ProtocolStatus.EM_ANDAMENTO) && (
-                    <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(p.id, ProtocolStatus.RESOLVIDO_PENDENTE); }} title="Informar Resolução" className="p-3 bg-green-50 text-green-600 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm">
+                    <button onClick={(e) => { e.stopPropagation(); handleUpdateStatus(p.id, ProtocolStatus.RESOLVIDO_PENDENTE); }} title="Resolver" className="p-3 bg-green-50 text-green-600 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm">
                       <CheckCircle2 size={16} />
                     </button>
                   )}
 
-                  {/* AÇÕES ADMIN (APROVAÇÃO) */}
+                  {/* BOTÕES ADMIN - APROVAÇÃO E REJEIÇÃO */}
                   {isAdmin && isPendingConfirm && (
-                    <>
-                      <button onClick={(e) => { e.stopPropagation(); handleAdminApprove(p.id); }} title="Aprovar Resolução e Fechar" className="p-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all shadow-md active:scale-90">
-                        <ThumbsUp size={16} />
+                    <div className="flex gap-2 bg-slate-900 p-1.5 rounded-2xl shadow-2xl">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleAdminApprove(p.id); }} 
+                        className="px-4 py-2 bg-green-500 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-green-600 transition-all flex items-center gap-2 active:scale-95"
+                      >
+                        <ThumbsUp size={14} /> Aprovar
                       </button>
-                      <button onClick={(e) => { e.stopPropagation(); setRejectProtocol(p); }} title="Rejeitar e Reabrir" className="p-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all shadow-md active:scale-90">
-                        <ThumbsDown size={16} />
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setRejectProtocol(p); }} 
+                        className="p-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all"
+                      >
+                        <ThumbsDown size={14} />
                       </button>
-                    </>
+                    </div>
                   )}
 
-                  {/* REATRIBUIÇÃO ADMIN */}
                   {isAdmin && !isClosed && (
-                    <button onClick={(e) => { e.stopPropagation(); setReassignProtocol(p); }} title="Reatribuir Operador" className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
+                    <button onClick={(e) => { e.stopPropagation(); setReassignProtocol(p); }} title="Reatribuir" className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
                       <UserPlus size={16} />
                     </button>
                   )}
@@ -354,7 +364,7 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
         })}
       </div>
 
-      {/* MODAL REJEIÇÃO (ADMIN) */}
+      {/* MODAL REJEIÇÃO */}
       {rejectProtocol && (
         <div className="fixed inset-0 z-[260] flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4">
           <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
@@ -363,26 +373,23 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
               <button onClick={() => setRejectProtocol(null)}><X size={20} /></button>
             </div>
             <div className="p-8 space-y-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Motivo da Rejeição</label>
-                <textarea 
-                  required
-                  value={rejectReason} 
-                  onChange={e => setRejectReason(e.target.value)}
-                  className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm h-32 resize-none outline-none focus:ring-4 focus:ring-red-500/10" 
-                  placeholder="Explique o que ainda precisa ser feito..."
-                />
-              </div>
+              <textarea 
+                required
+                value={rejectReason} 
+                onChange={e => setRejectReason(e.target.value)}
+                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm h-32 resize-none outline-none focus:ring-4 focus:ring-red-500/10" 
+                placeholder="Informe o motivo para o operador corrigir..."
+              />
               <div className="flex gap-4">
                 <button onClick={() => setRejectProtocol(null)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px]">Cancelar</button>
-                <button onClick={handleAdminReject} className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black uppercase text-[10px]">Reabrir</button>
+                <button onClick={handleAdminReject} className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black uppercase text-[10px]">Confirmar Rejeição</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL REATRIBUIÇÃO (ADMIN) */}
+      {/* MODAL REATRIBUIÇÃO */}
       {reassignProtocol && (
         <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
           <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
@@ -391,9 +398,8 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
               <button onClick={() => setReassignProtocol(null)}><X size={20} /></button>
             </div>
             <div className="p-8 space-y-4">
-              <p className="text-xs text-slate-500 font-bold mb-4">Escolha o operador responsável por: <br/><span className="text-slate-900">#{reassignProtocol.id} - {reassignProtocol.title}</span></p>
               <div className="max-h-60 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                {operators.filter(u => u.role === UserRole.OPERATOR && u.active).map(op => (
+                {operators.filter(u => u.role === UserRole.OPERATOR).map(op => (
                   <button key={op.id} onClick={() => handleReassign(op.id)} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between group hover:bg-indigo-50 hover:border-indigo-200 transition-all">
                     <span className="font-black text-slate-800 text-sm">{op.name}</span>
                     <ChevronRight size={16} className="text-slate-300 group-hover:text-indigo-600" />
@@ -405,53 +411,34 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
         </div>
       )}
 
-      {/* MODAL RESOLUÇÃO (OPERADOR) */}
+      {/* MODAL RESOLUÇÃO */}
       {resolveProtocol && (
         <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
           <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
             <div className="bg-green-600 p-8 text-white flex justify-between items-center">
-              <div>
-                <h3 className="font-black uppercase text-lg tracking-tight">Questionário de Resolução</h3>
-                <p className="text-green-100 text-[10px] font-bold uppercase tracking-widest">Protocolo #{resolveProtocol.id}</p>
-              </div>
-              <button onClick={() => setResolveProtocol(null)} className="p-2 hover:bg-white/10 rounded-full"><X size={24} /></button>
+              <h3 className="font-black uppercase text-sm tracking-widest">Resolução do Protocolo</h3>
+              <button onClick={() => setResolveProtocol(null)}><X size={24} /></button>
             </div>
             <div className="p-10 space-y-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Qual foi a resolução?</label>
-                <textarea 
-                  required
-                  value={resolveForm.summary} 
-                  onChange={e => setResolveForm({...resolveForm, summary: e.target.value})}
-                  className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm h-32 resize-none outline-none focus:ring-4 focus:ring-green-500/10" 
-                  placeholder="Relate como o problema foi resolvido..."
-                />
-              </div>
-
+              <textarea 
+                required
+                value={resolveForm.summary} 
+                onChange={e => setResolveForm({...resolveForm, summary: e.target.value})}
+                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm h-32 resize-none outline-none focus:ring-4 focus:ring-green-500/10" 
+                placeholder="Descreva a solução aplicada..."
+              />
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Satisfação do Cliente</label>
-                  <select value={resolveForm.satisfaction} onChange={e => setResolveForm({...resolveForm, satisfaction: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase cursor-pointer">
-                    <option value="Boa">Boa 😊</option>
-                    <option value="Regular">Regular 😐</option>
-                    <option value="Ruim">Ruim 😞</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Retornou a comprar?</label>
-                  <select value={resolveForm.repurchase} onChange={e => setResolveForm({...resolveForm, repurchase: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase cursor-pointer">
-                    <option value="Sim">Sim 💰</option>
-                    <option value="Não">Não</option>
-                  </select>
-                </div>
+                <select value={resolveForm.satisfaction} onChange={e => setResolveForm({...resolveForm, satisfaction: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                  <option value="Boa">Boa 😊</option>
+                  <option value="Regular">Regular 😐</option>
+                  <option value="Ruim">Ruim 😞</option>
+                </select>
+                <select value={resolveForm.repurchase} onChange={e => setResolveForm({...resolveForm, repurchase: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                  <option value="Sim">Sim 💰</option>
+                  <option value="Não">Não</option>
+                </select>
               </div>
-
-              <button 
-                onClick={handleFinalResolve}
-                className="w-full py-6 bg-green-600 text-white rounded-[32px] font-black uppercase tracking-widest text-[11px] shadow-xl hover:bg-green-700 transition-all active:scale-95"
-              >
-                Enviar para Aprovação do Gestor
-              </button>
+              <button onClick={handleFinalResolve} className="w-full py-6 bg-green-600 text-white rounded-[32px] font-black uppercase tracking-widest text-[11px] shadow-xl hover:bg-green-700 transition-all">Enviar para Aprovação</button>
             </div>
           </div>
         </div>
@@ -462,72 +449,57 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
            <div className="bg-white w-full max-w-2xl max-h-[90vh] rounded-[40px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-300">
               <div className="bg-slate-900 p-8 text-white flex justify-between items-center shrink-0">
-                 <h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-2"><Plus size={24} className="text-blue-400" /> Registro de Protocolo</h3>
+                 <h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-2">Novo Protocolo</h3>
                  <button onClick={() => setIsNewModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-all"><X size={24} /></button>
               </div>
               
               <div className="flex-1 overflow-y-auto p-10 space-y-8 custom-scrollbar">
                  <section className="space-y-4">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Cliente</h4>
                     <select value={newProto.clientId} onChange={e => setNewProto({...newProto, clientId: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none cursor-pointer">
-                      <option value="">-- NOVO CLIENTE (MANUAL) --</option>
+                      <option value="">-- Cliente Manual --</option>
                       {clients.map(c => <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>)}
                     </select>
                     {!newProto.clientId && (
                       <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100 space-y-4 animate-in fade-in slide-in-from-top-2">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <input type="text" placeholder="Nome do Cliente" value={newProto.manualName} onChange={e => setNewProto({...newProto, manualName: e.target.value})} className="p-4 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none" />
+                          <input type="text" placeholder="Nome" value={newProto.manualName} onChange={e => setNewProto({...newProto, manualName: e.target.value})} className="p-4 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none" />
                           <input type="text" placeholder="Telefone" value={newProto.manualPhone} onChange={e => setNewProto({...newProto, manualPhone: e.target.value})} className="p-4 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none" />
-                          <input type="text" placeholder="Endereço" value={newProto.manualAddress} onChange={e => setNewProto({...newProto, manualAddress: e.target.value})} className="md:col-span-2 p-4 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none" />
                         </div>
                       </div>
                     )}
-                 </section>
-
-                 <section className="space-y-4">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Ocorrência</h4>
-                    <input type="text" placeholder="Título (Ex: Bomba não liga)" value={newProto.title} onChange={e => setNewProto({...newProto, title: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none" />
-                    <textarea placeholder="Descrição completa..." value={newProto.description} onChange={e => setNewProto({...newProto, description: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm h-32 resize-none outline-none" />
+                    <input type="text" placeholder="Título" value={newProto.title} onChange={e => setNewProto({...newProto, title: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none" />
+                    <textarea placeholder="Descrição..." value={newProto.description} onChange={e => setNewProto({...newProto, description: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm h-32 resize-none outline-none" />
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                       <select value={newProto.departmentId} onChange={e => setNewProto({...newProto, departmentId: e.target.value})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase cursor-pointer">
-                          <option value="">Setor Destino</option>
+                       <select value={newProto.departmentId} onChange={e => setNewProto({...newProto, departmentId: e.target.value})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
                           {config.departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                        </select>
-                       <select value={newProto.priority} onChange={e => setNewProto({...newProto, priority: e.target.value as any})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase cursor-pointer">
+                       <select value={newProto.priority} onChange={e => setNewProto({...newProto, priority: e.target.value as any})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
                           <option value="Baixa">Baixa</option>
                           <option value="Média">Média</option>
                           <option value="Alta">Alta</option>
                        </select>
-                       <select value={newProto.ownerOperatorId} onChange={e => setNewProto({...newProto, ownerOperatorId: e.target.value})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase cursor-pointer">
+                       <select value={newProto.ownerOperatorId} onChange={e => setNewProto({...newProto, ownerOperatorId: e.target.value})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
                           <option value={user.id}>Comigo</option>
                           {operators.filter(u => u.role === UserRole.OPERATOR).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                        </select>
                     </div>
                  </section>
 
-                 <button 
-                   type="button"
-                   onClick={handleManualSave}
-                   className="w-full py-6 bg-slate-900 text-white rounded-[32px] font-black uppercase tracking-widest text-[11px] shadow-2xl active:scale-95 transition-all hover:bg-slate-800"
-                 >
-                    Abrir Protocolo Oficial
-                 </button>
+                 <button onClick={handleManualSave} className="w-full py-6 bg-slate-900 text-white rounded-[32px] font-black uppercase tracking-widest text-[11px] shadow-2xl active:scale-95 transition-all">Abrir Protocolo Oficial</button>
               </div>
            </div>
         </div>
       )}
 
-      {/* MODAL DETALHE */}
+      {/* MODAL DETALHE COMPLETO */}
       {selectedProtocol && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 overflow-hidden">
            <div className="bg-white w-full max-w-5xl max-h-[95vh] rounded-[40px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-300">
               <div className="bg-slate-900 p-8 text-white flex justify-between items-start shrink-0">
                  <div>
                     <div className="flex items-center gap-3 mb-2">
-                       <span className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${
-                         selectedProtocol.status === ProtocolStatus.FECHADO ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'
-                       }`}>{selectedProtocol.status === ProtocolStatus.FECHADO ? 'APROVADO / FECHADO' : selectedProtocol.status}</span>
-                       <span className="text-slate-400 text-[10px] font-black tracking-widest">#{selectedProtocol.id}</span>
+                       <span className="px-3 py-1 bg-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest">{selectedProtocol.status}</span>
+                       <span className="text-slate-400 text-[10px] font-black tracking-widest">#{selectedProtocol.id?.substring(0,8)}</span>
                     </div>
                     <h3 className="text-3xl font-black leading-tight tracking-tighter">{selectedProtocol.title}</h3>
                  </div>
@@ -536,55 +508,27 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
 
               <div className="flex-1 overflow-y-auto p-10 grid grid-cols-1 md:grid-cols-12 gap-10 custom-scrollbar">
                  <div className="md:col-span-8 space-y-10">
-                    <section className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                       <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 flex items-center gap-4">
-                          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-blue-600 shadow-sm"><User size={24} /></div>
-                          <div className="min-w-0">
-                             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Cliente</p>
-                             <p className="font-black text-slate-800 truncate">{clients.find(c => c.id === selectedProtocol.clientId)?.name || 'Manual'}</p>
-                          </div>
-                       </div>
-                       <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 flex items-center gap-4">
-                          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm"><UserCheck size={24} /></div>
-                          <div className="min-w-0">
-                             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Operador Responsável</p>
-                             <p className="font-black text-slate-800 truncate">{operators.find(o => o.id === selectedProtocol.ownerOperatorId)?.name || 'N/A'}</p>
-                          </div>
-                       </div>
-                    </section>
-
-                    <section className="space-y-4">
-                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Relato da Ocorrência</h4>
-                       <div className="p-8 bg-slate-50 rounded-[32px] border border-slate-100 text-slate-700 text-sm font-medium leading-relaxed shadow-inner whitespace-pre-wrap">
-                          {selectedProtocol.description}
-                       </div>
-                    </section>
+                    <div className="p-8 bg-slate-50 rounded-[32px] border border-slate-100 text-slate-700 font-medium whitespace-pre-wrap">
+                       {selectedProtocol.description}
+                    </div>
                     
                     {selectedProtocol.resolutionSummary && (
-                      <section className="space-y-4">
-                         <h4 className="text-[10px] font-black text-green-600 uppercase tracking-widest border-b border-green-100 pb-2">Resolução Oficial</h4>
-                         <div className="p-8 bg-green-50 rounded-[32px] border border-green-100 text-green-800 text-sm font-bold leading-relaxed shadow-inner italic">
-                            {selectedProtocol.resolutionSummary}
-                         </div>
-                      </section>
+                      <div className="p-8 bg-green-50 rounded-[32px] border border-green-100 text-green-800 font-bold italic">
+                         RESOLUÇÃO: {selectedProtocol.resolutionSummary}
+                      </div>
                     )}
 
                     <section className="space-y-6">
-                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Linha do Tempo</h4>
-                       <div className="space-y-6 ml-4">
-                          {(protocolEvents || []).sort((a,b) => b.createdAt.localeCompare(a.createdAt)).map((e) => (
-                            <div key={e.id} className="flex gap-5 relative">
-                               <div className="w-8 h-8 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 shrink-0 z-10 border-4 border-white shadow-sm">
-                                  <History size={14} />
-                               </div>
-                               <div className="flex-1 pb-4">
-                                  <div className="flex items-center justify-between mb-1">
-                                     <p className="text-xs font-black text-slate-800 uppercase tracking-tight">
-                                       {e.eventType === 'created' ? 'Protocolo Aberto' : e.eventType === 'status_changed' ? `Status: ${e.newValue}` : e.eventType === 'owner_changed' ? 'Troca de Responsável' : 'Atualização'}
-                                     </p>
-                                     <span className="text-[9px] text-slate-400 font-black uppercase">{new Date(e.createdAt).toLocaleString()}</span>
-                                  </div>
-                                  {e.note && <p className="text-[10px] text-slate-500 font-medium italic">{e.note}</p>}
+                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Histórico de Eventos</h4>
+                       <div className="space-y-4">
+                          {protocolEvents.map((e) => (
+                            <div key={e.id} className="flex gap-4">
+                               <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 shrink-0"><History size={16} /></div>
+                               <div>
+                                  {/* Fix property name from event_type to eventType in ProtocolEvent mapping */}
+                                  <p className="text-[10px] font-black text-slate-800 uppercase tracking-tight">{e.eventType === 'status_change' ? 'Mudança de Status' : 'Nota de Auditoria'}</p>
+                                  <p className="text-xs text-slate-500 font-medium italic">{e.note}</p>
+                                  <span className="text-[8px] text-slate-400 font-black uppercase">{new Date(e.createdAt).toLocaleString()}</span>
                                </div>
                             </div>
                           ))}
@@ -592,24 +536,15 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
                     </section>
                  </div>
 
-                 <div className="md:col-span-4 space-y-8">
-                    <div className="p-8 bg-slate-900 rounded-[32px] text-white shadow-2xl">
-                       <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-8 border-b border-slate-800 pb-4 text-center">Gestão SLA</h5>
-                       <div className="space-y-8">
-                          <div className="text-center">
-                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Status</p>
-                             <p className={`font-black text-2xl tracking-tighter uppercase ${selectedProtocol.status === ProtocolStatus.RESOLVIDO_PENDENTE ? 'text-orange-400' : 'text-blue-400'}`}>{selectedProtocol.status}</p>
-                          </div>
-                          <div className="text-center">
-                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Idade do Protocolo</p>
-                             <p className="font-black text-2xl text-white tracking-tighter">{calculateTimeOpen(selectedProtocol.openedAt)}</p>
-                          </div>
-                          {selectedProtocol.status !== ProtocolStatus.FECHADO && (
-                            <div className="text-center">
-                               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Prazo Máximo</p>
-                               <p className="font-black text-lg text-slate-300 tracking-tighter">{new Date(selectedProtocol.slaDueAt).toLocaleString()}</p>
-                            </div>
-                          )}
+                 <div className="md:col-span-4">
+                    <div className="p-8 bg-slate-900 rounded-[32px] text-white shadow-2xl space-y-6">
+                       <div className="text-center">
+                          <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Responsável</p>
+                          <p className="font-black text-lg text-blue-400">{operators.find(o => o.id === selectedProtocol.ownerOperatorId)?.name || 'N/A'}</p>
+                       </div>
+                       <div className="text-center">
+                          <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Tempo de Abertura</p>
+                          <p className="font-black text-2xl text-white">{calculateTimeOpen(selectedProtocol.openedAt)}</p>
                        </div>
                     </div>
                  </div>

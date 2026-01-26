@@ -45,7 +45,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         
         setIsRegistering(false);
         setPassword('');
-        setError('Conta criada! Agora você pode entrar.');
+        setError('Conta administrativa criada! Entre agora.');
       } else {
         const user = await dataService.signIn(inputVal, password);
         onLogin(user);
@@ -55,7 +55,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       console.error("[Login View Error]", err);
       
       if (msg.includes('limite') || msg.includes('rate limit')) {
-        setError('Bloqueio Temporário: O Supabase detectou muitas tentativas. Por segurança, aguarde de 15 a 30 minutos antes de tentar novamente.');
+        setError('Bloqueio Temporário: O servidor detectou muitas tentativas. Aguarde 15 minutos.');
+      } else if (msg.includes('incorretos') || msg.includes('credentials')) {
+        setError('Credenciais Inválidas: Verifique seu nome de usuário (ex: joao) e sua senha.');
       } else {
         setError(msg || 'Erro ao conectar. Tente novamente em instantes.');
       }
@@ -74,14 +76,14 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           </div>
           <h1 className="text-2xl font-black text-white tracking-tighter uppercase">Irmãos Dreon</h1>
           <p className="text-blue-400 text-[9px] font-black uppercase tracking-[0.2em] mt-2">
-            {isRegistering ? 'Cadastro Administrativo' : 'Plataforma de Performance'}
+            {isRegistering ? 'Nova conta administrativa' : 'Plataforma de Performance'}
           </p>
         </div>
         
         <form onSubmit={handleSubmit} className="p-10 space-y-5">
           {error && (
             <div className={`p-4 rounded-2xl text-[11px] border font-bold flex items-center gap-3 animate-in shake ${error.includes('sucesso') || error.includes('criada') ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
-              {error.includes('Bloqueio') ? <Clock size={16} className="shrink-0 animate-pulse" /> : <ShieldAlert size={16} className="shrink-0" />}
+              <ShieldAlert size={16} className="shrink-0" />
               <span className="flex-1 leading-relaxed">{error}</span>
             </div>
           )}
@@ -110,7 +112,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full pl-11 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none transition-all font-bold text-slate-700"
-                placeholder="admin ou seu@email.com"
+                placeholder="admin ou joao"
                 required
               />
             </div>
@@ -172,7 +174,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         </form>
         
         <div className="p-6 bg-slate-50 text-center text-[9px] text-slate-400 font-black uppercase tracking-widest border-t border-slate-100">
-          &copy; Telemarketing Irmãos Dreon &bull; V.2.6.0
+          &copy; Telemarketing Irmãos Dreon &bull; V.2.6.5
         </div>
       </div>
     </div>
