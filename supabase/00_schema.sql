@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 CREATE TABLE IF NOT EXISTS public.clients (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   name text NOT NULL,
-  phone text UNIQUE NOT NULL, -- Chave de deduplicação
+  phone text UNIQUE NOT NULL,
   address text,
   acceptance text CHECK (acceptance IN ('low', 'medium', 'high')) DEFAULT 'medium',
   satisfaction text CHECK (satisfaction IN ('low', 'medium', 'high')) DEFAULT 'medium',
@@ -28,26 +28,38 @@ CREATE TABLE IF NOT EXISTS public.clients (
   updated_at timestamptz DEFAULT now()
 );
 
--- 4. TABELA DE CHAMADAS (LOGS)
+-- 4. TABELA DE TAREFAS (FILA)
+CREATE TABLE IF NOT EXISTS public.tasks (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  client_id uuid REFERENCES public.clients(id) ON DELETE CASCADE,
+  type text NOT NULL, -- POS-VENDA, VENDA, etc
+  deadline timestamptz,
+  assigned_to uuid REFERENCES public.profiles(id),
+  status text CHECK (status IN ('pending', 'completed', 'skipped')) DEFAULT 'pending',
+  skip_reason text,
+  created_at timestamptz DEFAULT now()
+);
+
+-- 5. TABELA DE CHAMADAS (LOGS)
 CREATE TABLE IF NOT EXISTS public.call_logs (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  task_id text,
+  task_id uuid REFERENCES public.tasks(id),
   operator_id uuid REFERENCES public.profiles(id),
   client_id uuid REFERENCES public.clients(id) ON DELETE CASCADE,
   call_type text NOT NULL,
   start_time timestamptz DEFAULT now(),
   end_time timestamptz,
-  duration int, -- em segundos
-  report_time int, -- em segundos
+  duration int,
+  report_time int,
   responses jsonb DEFAULT '{}',
-  protocol_id text, -- Referência amigável ao protocolo se criado
+  protocol_id text,
   created_at timestamptz DEFAULT now()
 );
 
--- 5. TABELA DE PROTOCOLOS
+-- 6. TABELA DE PROTOCOLOS
 CREATE TABLE IF NOT EXISTS public.protocols (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  protocol_number text UNIQUE, -- Gerado por trigger
+  protocol_number text UNIQUE,
   client_id uuid REFERENCES public.clients(id) ON DELETE CASCADE,
   opened_by_id uuid REFERENCES public.profiles(id),
   owner_id uuid REFERENCES public.profiles(id),
@@ -66,7 +78,7 @@ CREATE TABLE IF NOT EXISTS public.protocols (
   created_at timestamptz DEFAULT now()
 );
 
--- 6. PROTOCOL EVENTS (AUDITORIA)
+-- 7. PROTOCOL EVENTS (AUDITORIA)
 CREATE TABLE IF NOT EXISTS public.protocol_events (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   protocol_id uuid REFERENCES public.protocols(id) ON DELETE CASCADE,
@@ -78,7 +90,7 @@ CREATE TABLE IF NOT EXISTS public.protocol_events (
   created_at timestamptz DEFAULT now()
 );
 
--- 7. FUNÇÃO PARA GERAR NÚMERO DE PROTOCOLO
+-- 8. TRIGGER DE PROTOCOLO
 CREATE OR REPLACE FUNCTION generate_protocol_number() 
 RETURNS TRIGGER AS $$
 DECLARE

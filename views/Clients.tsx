@@ -11,7 +11,9 @@ import {
   X,
   MapPin,
   Tag,
-  Save
+  Save,
+  Copy,
+  MessageSquare
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { SATISFACTION_EMOJIS } from '../constants';
@@ -22,6 +24,7 @@ const Clients: React.FC = () => {
   const [search, setSearch] = React.useState('');
   const [selectedClient, setSelectedClient] = React.useState<Client | null>(null);
   const [clientHistory, setClientHistory] = React.useState<CallRecord[]>([]);
+  const [copied, setCopied] = React.useState(false);
   
   // States Modal
   const [isModalOpen, setIsModalOpen] = React.useState(false);
@@ -70,6 +73,17 @@ const Clients: React.FC = () => {
     setNewClient({ name: '', phone: '', address: '', items: '' });
     await loadClients();
     alert('Cliente cadastrado com sucesso!');
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const openWhatsApp = (phone: string) => {
+    const cleanPhone = phone.replace(/\D/g, '');
+    window.open(`https://wa.me/${cleanPhone}`, '_blank');
   };
 
   const filteredClients = clients.filter(c => 
@@ -139,9 +153,27 @@ const Clients: React.FC = () => {
               <div className="flex justify-between items-start border-b border-slate-50 pb-6">
                 <div>
                   <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-1">{selectedClient.name}</h3>
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1.5 text-slate-500 text-sm font-bold">
-                      <Phone size={14} className="text-blue-500" /> {selectedClient.phone}
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex items-center gap-2 text-slate-500 text-sm font-bold">
+                      <div className="flex items-center gap-1.5">
+                        <Phone size={14} className="text-blue-500" /> {selectedClient.phone}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button 
+                          onClick={() => copyToClipboard(selectedClient.phone)}
+                          title="Copiar número"
+                          className={`p-1.5 rounded-lg transition-all ${copied ? 'bg-green-100 text-green-600' : 'bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600'}`}
+                        >
+                          <Copy size={12} />
+                        </button>
+                        <button 
+                          onClick={() => openWhatsApp(selectedClient.phone)}
+                          title="Abrir no WhatsApp"
+                          className="p-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-600 hover:text-white transition-all"
+                        >
+                          <MessageSquare size={12} />
+                        </button>
+                      </div>
                     </div>
                     <div className="flex items-center gap-1.5 text-slate-500 text-sm font-bold">
                       <MapPin size={14} className="text-red-500" /> {selectedClient.address || 'Sem endereço'}

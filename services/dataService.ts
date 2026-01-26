@@ -40,7 +40,6 @@ export const dataService = {
       .single();
 
     if (profileError || !profile) {
-      // Tenta criar perfil se não existir (failsafe)
       throw new Error('Perfil de colaborador não encontrado no banco de dados.');
     }
 
@@ -56,7 +55,6 @@ export const dataService = {
   createUser: async (userData: Partial<User>): Promise<void> => {
     const email = getInternalEmail(userData.username || '');
     
-    // 1. Cria usuário no Auth
     const { data: authUser, error: authError } = await supabase.auth.signUp({
       email,
       password: userData.password || 'dreon123',
@@ -71,7 +69,6 @@ export const dataService = {
     if (authError) throw authError;
     if (!authUser.user) throw new Error('Falha ao criar credenciais de acesso.');
 
-    // 2. Cria perfil na tabela pública
     const { error: profileError } = await supabase
       .from('profiles')
       .upsert({
@@ -82,10 +79,41 @@ export const dataService = {
         active: true
       });
 
-    if (profileError) {
-      console.error("Erro ao criar perfil:", profileError);
-      throw new Error('Usuário criado, mas houve erro ao salvar o perfil. Contate o administrador.');
-    }
+    if (profileError) throw new Error('Erro ao salvar perfil no banco de dados.');
+  },
+
+  // --- TAREFAS (FILA DE ATENDIMENTO) ---
+  getTasks: async (): Promise<Task[]> => {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .order('created_at', { ascending: true });
+    
+    if (error) return [];
+    
+    return data.map(t => ({
+      id: t.id,
+      clientId: t.client_id,
+      type: t.type as CallType,
+      deadline: t.deadline,
+      assignedTo: t.assigned_to,
+      status: t.status,
+      skipReason: t.skip_reason
+    }));
+  },
+
+  updateTask: async (taskId: string, updates: Partial<Task>): Promise<boolean> => {
+    const payload: any = {};
+    if (updates.status) payload.status = updates.status;
+    if (updates.skipReason) payload.skip_reason = updates.skipReason;
+    if (updates.assignedTo) payload.assigned_to = updates.assignedTo;
+
+    const { error } = await supabase
+      .from('tasks')
+      .update(payload)
+      .eq('id', taskId);
+
+    return !error;
   },
 
   // --- CLIENTES ---
@@ -336,20 +364,7 @@ export const dataService = {
     if (error) console.error("Event error:", error);
   },
 
-  getTasks: (): Task[] => {
-    const stored = localStorage.getItem('dreon_tasks');
-    return stored ? JSON.parse(stored) : [];
-  },
-
-  updateTask: async (taskId: string, updates: Partial<Task>): Promise<boolean> => {
-    const tasks = dataService.getTasks();
-    const idx = tasks.findIndex(t => t.id === taskId);
-    if (idx === -1) return false;
-    tasks[idx] = { ...tasks[idx], ...updates };
-    localStorage.setItem('dreon_tasks', JSON.stringify(tasks));
-    return true;
-  },
-
+  // --- ANALYTICS & HELPERS ---
   calculateIDE: (calls: CallRecord[]) => {
     if (!calls || calls.length === 0) return 0;
     const stageScores: Record<string, { sum: number, count: number }> = {};

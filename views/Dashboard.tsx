@@ -53,12 +53,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   // Correctly await asynchronous calls in loadData
   React.useEffect(() => {
     const loadData = async () => {
-      const [calls, protocols, allClients] = await Promise.all([
+      // FIX: Added dataService.getTasks() to Promise.all to correctly await its completion
+      const [calls, protocols, allClients, tasks] = await Promise.all([
         dataService.getCalls(),
         dataService.getProtocols(),
-        dataService.getClients()
+        dataService.getClients(),
+        dataService.getTasks()
       ]);
-      const tasks = dataService.getTasks() || [];
       setClients(allClients);
       
       let filterId = user?.role === UserRole.OPERATOR ? user?.id : selectedFilter;
