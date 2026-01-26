@@ -6,7 +6,6 @@ import {
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { User, UserRole } from '../types';
-import { supabase, getInternalEmail, ENV } from '../lib/supabase';
 
 const Admin: React.FC = () => {
   const [activeTab, setActiveTab] = React.useState<'import' | 'users' | 'questions'>('import');
@@ -55,14 +54,11 @@ const Admin: React.FC = () => {
     setIsProcessing(true);
     let count = 0;
     try {
-      for (let i = 0; i < csvPreview.length; i += 50) {
-        const chunk = csvPreview.slice(i, i + 50);
-        for (const item of chunk) {
-          await dataService.upsertClient(item);
-          count++;
-        }
+      for (const item of csvPreview) {
+        await dataService.upsertClient(item);
+        count++;
       }
-      alert(`${count} clientes processados e deduplicados com sucesso.`);
+      alert(`${count} clientes processados com sucesso.`);
       setCsvPreview([]);
     } catch (err: any) {
       alert("Erro na importação: " + err.message);
@@ -74,26 +70,8 @@ const Admin: React.FC = () => {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsProcessing(true);
-    
     try {
-      const email = getInternalEmail(userData.username);
-      const { data, error } = await supabase.auth.signUp({ 
-        email, 
-        password: userData.password,
-        options: { data: { username: userData.username } }
-      });
-
-      if (error) throw error;
-
-      const { error: profileError } = await supabase.from('profiles').insert({
-        id: data.user?.id,
-        username_display: userData.name,
-        username_slug: userData.username,
-        role: userData.role
-      });
-
-      if (profileError) console.warn("Erro ao criar perfil:", profileError);
-
+      await dataService.createUser(userData);
       setIsUserModalOpen(false);
       setUserData({ name: '', username: '', password: '', role: UserRole.OPERATOR });
       refreshData();
@@ -109,14 +87,13 @@ const Admin: React.FC = () => {
     <div className="space-y-8 pb-20">
       <header>
         <h2 className="text-2xl font-black text-slate-800 tracking-tight">Painel Administrativo</h2>
-        <p className="text-slate-500 text-sm font-medium">Gestão centralizada Supabase + Dreon.</p>
+        <p className="text-slate-500 text-sm font-medium">Gestão centralizada de dados e acessos locais.</p>
       </header>
 
       <div className="flex border-b border-slate-200">
         {[
           { id: 'import', label: 'Carga de Dados', icon: FileSpreadsheet },
           { id: 'users', label: 'Equipe e Acessos', icon: Users },
-          { id: 'questions', label: 'Questionários', icon: HelpCircle },
         ].map(tab => (
           <button
             key={tab.id}
@@ -137,13 +114,13 @@ const Admin: React.FC = () => {
                       <Upload size={32} className="text-slate-300 group-hover:text-blue-500" />
                    </div>
                    <h4 className="text-xl font-black text-slate-800 tracking-tight">Importar Base de Clientes</h4>
-                   <p className="text-sm text-slate-400 font-medium mt-1">Deduplicação automática por telefone.</p>
+                   <p className="text-sm text-slate-400 font-medium mt-1">Deduplicação por telefone.</p>
                 </label>
                 {csvPreview.length > 0 && (
                   <div className="mt-10 p-6 bg-blue-50 border border-blue-100 rounded-3xl animate-in zoom-in">
                      <p className="text-xs font-black text-blue-700 uppercase tracking-widest mb-4">{csvPreview.length} registros detectados</p>
                      <button onClick={runImport} disabled={isProcessing} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl flex items-center justify-center gap-2">
-                        {isProcessing ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />} Confirmar Upsert
+                        {isProcessing ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />} Confirmar Importação
                      </button>
                   </div>
                 )}
@@ -194,7 +171,7 @@ const Admin: React.FC = () => {
                     <option value={UserRole.ADMIN}>Administrador</option>
                  </select>
                  <button disabled={isProcessing} type="submit" className="w-full py-5 bg-blue-600 text-white rounded-[32px] font-black uppercase tracking-widest text-[10px] shadow-2xl flex items-center justify-center gap-2">
-                   {isProcessing && <Loader2 className="animate-spin" />} Criar no Supabase
+                   {isProcessing && <Loader2 className="animate-spin" />} Criar Acesso
                  </button>
               </form>
            </div>

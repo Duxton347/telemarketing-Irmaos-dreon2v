@@ -1,16 +1,20 @@
 
-import { supabase, normalizePhone, slugify, getInternalEmail } from '../lib/supabase';
+import { supabase, normalizePhone, getInternalEmail } from '../lib/supabase';
 import { 
   User, Client, Task, CallRecord, Protocol, Question, 
   UserRole, CallType, ProtocolStatus, ProtocolEvent 
 } from '../types';
-import { DEFAULT_QUESTIONS, SCORE_MAP, STAGE_CONFIG } from '../constants';
+import { DEFAULT_QUESTIONS, SCORE_MAP, STAGE_CONFIG, PROTOCOL_SLA } from '../constants';
 
 export const dataService = {
   // --- USUÁRIOS & AUTH ---
   getUsers: async (): Promise<User[]> => {
-    const { data, error } = await supabase.from('profiles').select('*');
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*');
+    
     if (error) return [];
+    
     return data.map(p => ({
       id: p.id,
       name: p.username_display,
@@ -20,16 +24,25 @@ export const dataService = {
     }));
   },
 
-  signIn: async (username: string, password: string) => {
+  signIn: async (username: string, password: string): Promise<User> => {
     const email = getInternalEmail(username);
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    
-    const { data: profile } = await supabase
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (authError) throw authError;
+
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
-      .eq('id', data.user.id)
+      .eq('id', authData.user.id)
       .single();
+
+    if (profileError || !profile) {
+      // Tenta criar perfil se não existir (failsafe)
+      throw new Error('Perfil de colaborador não encontrado no banco de dados.');
+    }
 
     return {
       id: profile.id,
@@ -40,89 +53,154 @@ export const dataService = {
     };
   },
 
-  addUser: async (userData: any): Promise<boolean> => {
-    // Nota: Cadastro real precisa de Auth.signUp. 
-    // Em uma SPA comum, o Admin usaria uma Edge Function ou convidaria.
-    return true; 
+  createUser: async (userData: Partial<User>): Promise<void> => {
+    const email = getInternalEmail(userData.username || '');
+    
+    // 1. Cria usuário no Auth
+    const { data: authUser, error: authError } = await supabase.auth.signUp({
+      email,
+      password: userData.password || 'dreon123',
+      options: {
+        data: {
+          display_name: userData.name,
+          username: userData.username
+        }
+      }
+    });
+
+    if (authError) throw authError;
+    if (!authUser.user) throw new Error('Falha ao criar credenciais de acesso.');
+
+    // 2. Cria perfil na tabela pública
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert({
+        id: authUser.user.id,
+        username_display: userData.name,
+        username_slug: userData.username,
+        role: userData.role || UserRole.OPERATOR,
+        active: true
+      });
+
+    if (profileError) {
+      console.error("Erro ao criar perfil:", profileError);
+      throw new Error('Usuário criado, mas houve erro ao salvar o perfil. Contate o administrador.');
+    }
   },
 
   // --- CLIENTES ---
   getClients: async (): Promise<Client[]> => {
-    const { data, error } = await supabase.from('clients').select('*').order('name');
+    const { data, error } = await supabase
+      .from('clients')
+      .select('*')
+      .order('name');
+    
     if (error) return [];
+    
     return data.map(c => ({
       id: c.id,
       name: c.name,
       phone: c.phone,
       address: c.address,
       items: c.items || [],
-      acceptance: c.acceptance as any,
-      satisfaction: c.satisfaction as any,
-      invalid: c.invalid
+      acceptance: c.acceptance,
+      satisfaction: c.satisfaction,
+      invalid: c.invalid,
+      lastInteraction: c.last_interaction
     }));
   },
 
-  upsertClient: async (client: Partial<Client>) => {
-    if (!client.phone) return null;
-    const phone = normalizePhone(client.phone);
+  upsertClient: async (client: Partial<Client>): Promise<Client> => {
+    const phone = normalizePhone(client.phone || '');
     
-    const payload = {
-      name: client.name,
-      phone,
-      address: client.address,
-      items: client.items,
+    const clientPayload = {
+      name: client.name || 'Cliente Sem Nome',
+      phone: phone,
+      address: client.address || '',
+      items: client.items || [],
       acceptance: client.acceptance || 'medium',
       satisfaction: client.satisfaction || 'medium',
-      updated_at: new Date().toISOString()
+      invalid: client.invalid || false,
+      last_interaction: new Date().toISOString()
     };
 
     const { data, error } = await supabase
       .from('clients')
-      .upsert(payload, { onConflict: 'phone' })
+      .upsert(clientPayload, { onConflict: 'phone' })
       .select()
       .single();
 
     if (error) throw error;
-    return data;
+
+    return {
+      id: data.id,
+      name: data.name,
+      phone: data.phone,
+      address: data.address,
+      items: data.items,
+      acceptance: data.acceptance,
+      satisfaction: data.satisfaction,
+      lastInteraction: data.last_interaction
+    };
   },
 
   // --- CHAMADAS ---
-  saveCall: async (call: CallRecord) => {
-    const { error } = await supabase.from('call_logs').insert({
-      operator_id: call.operatorId,
-      client_id: call.clientId,
-      call_type: call.type,
-      duration: call.duration,
-      report_time: call.reportTime,
-      responses: call.responses,
-      protocol_id: call.protocolId,
-      start_time: call.startTime,
-      end_time: call.endTime
-    });
-    if (error) throw error;
-  },
-
   getCalls: async (): Promise<CallRecord[]> => {
-    const { data, error } = await supabase.from('call_logs').select('*');
+    const { data, error } = await supabase
+      .from('call_logs')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
     if (error) return [];
+
     return data.map(c => ({
       id: c.id,
+      taskId: c.task_id,
       operatorId: c.operator_id,
       clientId: c.client_id,
-      type: c.call_type as CallType,
       startTime: c.start_time,
       endTime: c.end_time,
       duration: c.duration,
       reportTime: c.report_time,
       responses: c.responses,
+      type: c.call_type as CallType,
       protocolId: c.protocol_id
     }));
   },
 
+  saveCall: async (call: CallRecord): Promise<void> => {
+    const { error } = await supabase
+      .from('call_logs')
+      .insert({
+        task_id: call.taskId,
+        operator_id: call.operatorId,
+        client_id: call.clientId,
+        call_type: call.type,
+        start_time: call.startTime,
+        end_time: call.endTime,
+        duration: call.duration,
+        report_time: call.reportTime,
+        responses: call.responses,
+        protocol_id: call.protocolId
+      });
+
+    if (error) throw error;
+
+    await supabase
+      .from('clients')
+      .update({ last_interaction: new Date().toISOString() })
+      .eq('id', call.clientId);
+  },
+
   // --- PROTOCOLOS ---
   getProtocols: async (): Promise<Protocol[]> => {
-    const { data, error } = await supabase.from('protocols').select('*');
+    const { data, error } = await supabase
+      .from('protocols')
+      .select('*')
+      .order('opened_at', { ascending: false });
+    
     if (error) return [];
+
     return data.map(p => ({
       id: p.protocol_number || p.id,
       clientId: p.client_id,
@@ -137,112 +215,139 @@ export const dataService = {
       status: p.status as ProtocolStatus,
       openedAt: p.opened_at,
       updatedAt: p.updated_at,
+      closedAt: p.closed_at,
+      lastActionAt: p.updated_at,
       slaDueAt: p.sla_due_at,
       resolutionSummary: p.resolution_summary
     }));
   },
 
-  saveProtocol: async (protocol: Protocol, userId: string) => {
-    const { data, error } = await supabase.from('protocols').insert({
-      client_id: protocol.clientId,
-      opened_by_id: userId,
-      owner_id: protocol.ownerOperatorId,
-      origin: protocol.origin,
-      department_id: protocol.departmentId,
-      title: protocol.title,
-      description: protocol.description,
-      priority: protocol.priority,
-      status: protocol.status,
-      sla_due_at: protocol.slaDueAt
-    }).select().single();
+  saveProtocol: async (protocol: Protocol, userId: string): Promise<string> => {
+    const { data, error } = await supabase
+      .from('protocols')
+      .insert({
+        client_id: protocol.clientId,
+        opened_by_id: protocol.openedByOperatorId,
+        owner_id: protocol.ownerOperatorId,
+        origin: protocol.origin,
+        department_id: protocol.departmentId,
+        category_id: protocol.categoryId,
+        title: protocol.title,
+        description: protocol.description,
+        priority: protocol.priority,
+        status: protocol.status,
+        sla_due_at: protocol.slaDueAt
+      })
+      .select()
+      .single();
 
     if (error) throw error;
 
-    // Log creation event
-    await supabase.from('protocol_events').insert({
-      protocol_id: data.id,
-      event_type: 'created',
-      created_by_user_id: userId,
-      note: 'Protocolo aberto'
+    await dataService.addProtocolEvent({
+      id: crypto.randomUUID(),
+      protocolId: data.id,
+      eventType: 'created',
+      createdByUserId: userId,
+      note: 'Protocolo aberto via sistema.',
+      createdAt: new Date().toISOString()
     });
 
-    return true;
+    return data.protocol_number;
   },
 
-  updateProtocol: async (pId: string, updates: Partial<Protocol>, userId: string, note?: string) => {
-    const { data: proto } = await supabase.from('protocols').select('id').or(`protocol_number.eq.${pId},id.eq.${pId}`).single();
-    if (!proto) return false;
+  updateProtocol: async (pId: string, updates: Partial<Protocol>, userId: string, note?: string): Promise<boolean> => {
+    const { data: existing } = await supabase
+      .from('protocols')
+      .select('id')
+      .or(`id.eq.${pId},protocol_number.eq.${pId}`)
+      .single();
 
-    const { error } = await supabase.from('protocols').update({
-      status: updates.status,
-      resolution_summary: updates.resolutionSummary,
-      owner_id: updates.ownerOperatorId,
-      closed_at: updates.closedAt,
-      updated_at: new Date().toISOString()
-    }).eq('id', proto.id);
+    if (!existing) return false;
+
+    const payload: any = { updated_at: new Date().toISOString() };
+    if (updates.status) payload.status = updates.status;
+    if (updates.ownerOperatorId) payload.owner_id = updates.ownerOperatorId;
+    if (updates.resolutionSummary) payload.resolution_summary = updates.resolutionSummary;
+    if (updates.closedAt) payload.closed_at = updates.closedAt;
+
+    const { error } = await supabase
+      .from('protocols')
+      .update(payload)
+      .eq('id', existing.id);
 
     if (error) return false;
 
     if (note) {
-      await supabase.from('protocol_events').insert({
-        protocol_id: proto.id,
-        event_type: updates.status ? 'status_changed' : 'note_added',
-        new_value: updates.status,
+      await dataService.addProtocolEvent({
+        id: crypto.randomUUID(),
+        protocolId: existing.id,
+        eventType: updates.status ? 'status_changed' : 'note_added',
+        newValue: updates.status || updates.ownerOperatorId,
         note,
-        created_by_user_id: userId
+        createdByUserId: userId,
+        createdAt: new Date().toISOString()
       });
     }
 
     return true;
   },
 
-  // Added getProtocolEvents method to fix reference errors in Protocols.tsx
   getProtocolEvents: async (protocolId: string): Promise<ProtocolEvent[]> => {
-    const { data: proto } = await supabase.from('protocols').select('id').or(`protocol_number.eq.${protocolId},id.eq.${protocolId}`).single();
-    if (!proto) return [];
+    const { data: p } = await supabase
+      .from('protocols')
+      .select('id')
+      .or(`id.eq.${protocolId},protocol_number.eq.${protocolId}`)
+      .single();
 
-    const { data, error } = await supabase.from('protocol_events')
+    if (!p) return [];
+
+    const { data, error } = await supabase
+      .from('protocol_events')
       .select('*')
-      .eq('protocol_id', proto.id)
+      .eq('protocol_id', p.id)
       .order('created_at', { ascending: false });
-      
+    
     if (error) return [];
+
     return data.map(e => ({
       id: e.id,
-      protocolId: e.protocol_id,
-      eventType: e.event_type,
+      protocolId: protocolId,
+      eventType: e.event_type as any,
       oldValue: e.old_value,
       newValue: e.new_value,
       note: e.note,
-      createdByUserId: e.created_by_user_id,
+      createdByUserId: e.actor_id,
       createdAt: e.created_at
     }));
   },
 
-  // --- RELATÓRIOS (CALCULADOS NO FRONT) ---
-  getDetailedStats: (calls: CallRecord[], protocols: Protocol[]) => {
-    const questions = DEFAULT_QUESTIONS;
-    const questionAnalysis = questions.map(q => {
-      const distribution: Record<string, number> = {};
-      q.options.forEach(opt => distribution[opt] = 0);
-      let responsesCount = 0;
-      let scoreSum = 0;
-      calls.forEach(call => {
-        const resp = call.responses?.[q.id];
-        if (resp && q.options.includes(resp)) {
-          distribution[resp] = (distribution[resp] || 0) + 1;
-          responsesCount++;
-          scoreSum += SCORE_MAP[resp] ?? 1;
-        }
+  addProtocolEvent: async (event: ProtocolEvent): Promise<void> => {
+    const { error } = await supabase
+      .from('protocol_events')
+      .insert({
+        protocol_id: event.protocolId,
+        actor_id: event.createdByUserId,
+        event_type: event.eventType,
+        old_value: event.oldValue,
+        new_value: event.newValue,
+        note: event.note
       });
-      return {
-        id: q.id, text: q.text, type: q.type, responsesCount,
-        avgScore: responsesCount > 0 ? (scoreSum / (responsesCount * 2)) * 100 : 0,
-        distribution: Object.entries(distribution).map(([name, value]) => ({ name, value }))
-      };
-    }).filter(q => q.responsesCount > 0);
+    
+    if (error) console.error("Event error:", error);
+  },
 
-    return { questionAnalysis, resolutionStats: { satisfaction: [], repurchase: [] } };
+  getTasks: (): Task[] => {
+    const stored = localStorage.getItem('dreon_tasks');
+    return stored ? JSON.parse(stored) : [];
+  },
+
+  updateTask: async (taskId: string, updates: Partial<Task>): Promise<boolean> => {
+    const tasks = dataService.getTasks();
+    const idx = tasks.findIndex(t => t.id === taskId);
+    if (idx === -1) return false;
+    tasks[idx] = { ...tasks[idx], ...updates };
+    localStorage.setItem('dreon_tasks', JSON.stringify(tasks));
+    return true;
   },
 
   calculateIDE: (calls: CallRecord[]) => {
@@ -285,6 +390,37 @@ export const dataService = {
     });
   },
 
+  getDetailedStats: (calls: CallRecord[], protocols: Protocol[]) => {
+    const questions = DEFAULT_QUESTIONS;
+    const questionAnalysis = questions.map(q => {
+      const distribution: Record<string, number> = {};
+      q.options.forEach(opt => distribution[opt] = 0);
+      let responsesCount = 0;
+      let scoreSum = 0;
+      calls.forEach(call => {
+        const resp = call.responses?.[q.id];
+        if (resp && q.options.includes(resp)) {
+          distribution[resp] = (distribution[resp] || 0) + 1;
+          responsesCount++;
+          scoreSum += SCORE_MAP[resp] ?? 1;
+        }
+      });
+      return {
+        id: q.id, text: q.text, type: q.type, responsesCount,
+        avgScore: responsesCount > 0 ? (scoreSum / (responsesCount * 2)) * 100 : 0,
+        distribution: Object.entries(distribution).map(([name, value]) => ({ name, value }))
+      };
+    }).filter(q => q.responsesCount > 0);
+
+    return { 
+      questionAnalysis, 
+      resolutionStats: { 
+        satisfaction: [], 
+        repurchase: [] 
+      } 
+    };
+  },
+
   getProtocolConfig: () => ({
     departments: [
       { id: 'd1', name: 'Execução/Obra' }, { id: 'd2', name: 'Instalação' }, 
@@ -293,17 +429,5 @@ export const dataService = {
     categories: []
   }),
 
-  // Added updateTask method to fix reference error in Queue.tsx
-  updateTask: async (taskId: string, updates: Partial<Task>) => {
-    const { error } = await supabase.from('tasks').update(updates).eq('id', taskId);
-    return !error;
-  },
-
-  // Added getQuestions method to fix reference error in Queue.tsx
-  getQuestions: (): Question[] => {
-    return DEFAULT_QUESTIONS;
-  },
-
-  // Fallback para Tasks
-  getTasks: (): Task[] => [] 
+  getQuestions: (): Question[] => DEFAULT_QUESTIONS
 };

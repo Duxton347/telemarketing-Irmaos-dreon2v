@@ -10,7 +10,6 @@ import Admin from './views/Admin';
 import Protocols from './views/Protocols';
 import Reports from './views/Reports';
 import { UserRole } from './types';
-import { supabase } from './lib/supabase';
 
 const App: React.FC = () => {
   const [user, setUser] = React.useState<any>(() => {
@@ -23,8 +22,7 @@ const App: React.FC = () => {
     localStorage.setItem('dreon_user', JSON.stringify(userData));
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
+  const handleLogout = () => {
     setUser(null);
     localStorage.removeItem('dreon_user');
   };
