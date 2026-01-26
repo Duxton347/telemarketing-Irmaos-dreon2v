@@ -17,6 +17,8 @@ $$ LANGUAGE sql SECURITY DEFINER;
 
 -- POLÍTICAS: PROFILES
 CREATE POLICY "Profiles são visíveis por todos autenticados" ON public.profiles FOR SELECT USING (auth.role() = 'authenticated');
+-- Permite inserção de perfil para o próprio usuário (necessário no signUp)
+CREATE POLICY "Usuários criam seu próprio perfil" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
 CREATE POLICY "Somente Admins atualizam perfis" ON public.profiles FOR UPDATE USING (is_admin());
 
 -- POLÍTICAS: CLIENTES
