@@ -97,7 +97,7 @@ export interface ProtocolEvent {
   oldValue?: string;
   newValue?: string;
   note?: string;
-  actorId: string; // Alinhado com actor_id do SQL
+  actorId: string; 
   createdAt: string;
 }
 

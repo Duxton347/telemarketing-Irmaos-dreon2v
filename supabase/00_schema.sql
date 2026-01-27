@@ -2,7 +2,7 @@
 -- 1. EXTENSÕES
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 2. TABELA DE PERFIS (Extensão do Auth.Users)
+-- 2. TABELA DE PERFIS
 CREATE TABLE IF NOT EXISTS public.profiles (
   id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   username_display text NOT NULL,
@@ -28,11 +28,11 @@ CREATE TABLE IF NOT EXISTS public.clients (
   updated_at timestamptz DEFAULT now()
 );
 
--- 4. TABELA DE TAREFAS (FILA)
+-- 4. TABELA DE TAREFAS
 CREATE TABLE IF NOT EXISTS public.tasks (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   client_id uuid REFERENCES public.clients(id) ON DELETE CASCADE,
-  type text NOT NULL, -- POS-VENDA, VENDA, etc
+  type text NOT NULL,
   deadline timestamptz,
   assigned_to uuid REFERENCES public.profiles(id),
   status text CHECK (status IN ('pending', 'completed', 'skipped')) DEFAULT 'pending',
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS public.tasks (
   created_at timestamptz DEFAULT now()
 );
 
--- 5. TABELA DE CHAMADAS (LOGS)
+-- 5. TABELA DE CHAMADAS (LOGS CRÍTICOS)
 CREATE TABLE IF NOT EXISTS public.call_logs (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   task_id uuid REFERENCES public.tasks(id),
@@ -49,9 +49,9 @@ CREATE TABLE IF NOT EXISTS public.call_logs (
   call_type text NOT NULL,
   start_time timestamptz DEFAULT now(),
   end_time timestamptz,
-  duration int,
-  report_time int,
-  responses jsonb DEFAULT '{}',
+  duration int, 
+  report_time int, 
+  responses jsonb DEFAULT '{}', 
   protocol_id text,
   created_at timestamptz DEFAULT now()
 );
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS public.protocols (
   created_at timestamptz DEFAULT now()
 );
 
--- 7. PROTOCOL EVENTS (AUDITORIA)
+-- 7. EVENTOS DE PROTOCOLO
 CREATE TABLE IF NOT EXISTS public.protocol_events (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   protocol_id uuid REFERENCES public.protocols(id) ON DELETE CASCADE,
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS public.protocol_events (
   created_at timestamptz DEFAULT now()
 );
 
--- 8. TRIGGER DE PROTOCOLO
+-- 8. TRIGGER DE GERAÇÃO DE PROTOCOLO (CORRIGIDO)
 CREATE OR REPLACE FUNCTION generate_protocol_number() 
 RETURNS TRIGGER AS $$
 DECLARE
@@ -101,6 +101,9 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- CORREÇÃO: Remove o trigger se ele já existir antes de criar
+DROP TRIGGER IF EXISTS tr_generate_protocol_number ON public.protocols;
 
 CREATE TRIGGER tr_generate_protocol_number
 BEFORE INSERT ON public.protocols

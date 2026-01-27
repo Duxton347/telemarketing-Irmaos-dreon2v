@@ -1,5 +1,5 @@
 
-import { supabase, createAuthClient, normalizePhone, getInternalEmail, slugify } from '../lib/supabase';
+import { supabase, normalizePhone, getInternalEmail, slugify } from '../lib/supabase';
 import { 
   User, Client, Task, CallRecord, Protocol, Question, 
   UserRole, CallType, ProtocolStatus, ProtocolEvent 
@@ -61,7 +61,7 @@ export const dataService = {
     };
   },
 
-  // --- BUSCAS DETALHADAS DASHBOARD ---
+  // --- BUSCAS DETALHADAS DASHBOARD (Auditoria Admin) ---
   getDetailedCallsToday: async () => {
     const today = new Date().toISOString().split('T')[0];
     const { data, error } = await supabase
@@ -69,10 +69,10 @@ export const dataService = {
       .select(`
         *,
         profiles:operator_id(username_display),
-        clients:client_id(name, phone)
+        clients:client_id(name, phone, items)
       `)
       .gte('start_time', `${today}T00:00:00`)
-      .order('duration', { ascending: false });
+      .order('start_time', { ascending: false });
     
     if (error) throw error;
     return data;
@@ -103,7 +103,8 @@ export const dataService = {
       type: t.type as CallType,
       deadline: t.created_at,
       assignedTo: t.assigned_to,
-      status: t.status as any
+      status: t.status as any,
+      skipReason: t.skip_reason
     }));
   },
 
@@ -119,7 +120,8 @@ export const dataService = {
 
   updateTask: async (taskId: string, updates: Partial<Task>): Promise<boolean> => {
     const { error } = await supabase.from('tasks').update({
-      status: updates.status
+      status: updates.status,
+      skip_reason: updates.skipReason
     }).eq('id', taskId);
     return !error;
   },
@@ -133,8 +135,8 @@ export const dataService = {
       phone: c.phone,
       address: c.address,
       items: c.items || [],
-      acceptance: 'medium',
-      satisfaction: 'medium'
+      acceptance: c.acceptance as any || 'medium',
+      satisfaction: c.satisfaction as any || 'medium'
     }));
   },
 
@@ -160,14 +162,16 @@ export const dataService = {
       call_type: call.type,
       responses: call.responses,
       duration: call.duration,
+      report_time: call.reportTime,
       start_time: call.startTime,
+      end_time: call.endTime,
       protocol_id: call.protocolId
     });
     if (error) throw error;
   },
 
   getCalls: async () => {
-    const { data } = await supabase.from('call_logs').select('*');
+    const { data } = await supabase.from('call_logs').select('*').order('start_time', { ascending: false });
     return data || [];
   },
 
@@ -265,7 +269,92 @@ export const dataService = {
     ] 
   }),
   getQuestions: (): Question[] => DEFAULT_QUESTIONS,
-  calculateIDE: (calls: any[]) => calls.length > 0 ? 85 : 0,
-  getStageAverages: (calls: any[]) => [],
-  getDetailedStats: (calls: any[], protocols: any[]) => ({ questionAnalysis: [], resolutionStats: { satisfaction: [], repurchase: [] } })
+  
+  // Lógica de cálculo de IDE para o relatório
+  calculateIDE: (calls: any[]) => {
+    if (!calls || calls.length === 0) return 0;
+    let totalScore = 0;
+    let totalQuestions = 0;
+
+    calls.forEach(call => {
+      Object.entries(call.responses || {}).forEach(([qId, response]) => {
+        if (qId === 'summary' || qId === 'written_report' || qId === 'call_type') return;
+        const score = SCORE_MAP[response as string];
+        if (score !== undefined) {
+          totalScore += (score / 2) * 100;
+          totalQuestions++;
+        }
+      });
+    });
+
+    return totalQuestions > 0 ? Math.round(totalScore / totalQuestions) : 0;
+  },
+
+  getStageAverages: (calls: any[]) => {
+    const stages: Record<string, { total: number, count: number, color: string }> = {};
+    
+    calls.forEach(call => {
+      Object.entries(call.responses || {}).forEach(([qId, response]) => {
+        const question = DEFAULT_QUESTIONS.find(q => q.id === qId);
+        if (question && question.stageId) {
+          const config = STAGE_CONFIG[question.stageId as keyof typeof STAGE_CONFIG];
+          if (!stages[config.label]) stages[config.label] = { total: 0, count: 0, color: config.color };
+          
+          const score = SCORE_MAP[response as string];
+          if (score !== undefined) {
+            stages[config.label].total += (score / 2) * 100;
+            stages[config.label].count++;
+          }
+        }
+      });
+    });
+
+    return Object.entries(stages).map(([stage, data]) => ({
+      stage,
+      percentage: Math.round(data.total / data.count),
+      color: data.color
+    }));
+  },
+
+  getDetailedStats: (calls: any[], protocols: any[]) => {
+    const questionAnalysis = DEFAULT_QUESTIONS.map(q => {
+      const responses = calls
+        .map(c => c.responses?.[q.id])
+        .filter(r => r !== undefined);
+      
+      const distribution = q.options.map(opt => ({
+        name: opt,
+        value: responses.filter(r => r === opt).length
+      }));
+
+      const scores = responses.map(r => SCORE_MAP[r] || 0);
+      const avgScore = scores.length > 0 
+        ? (scores.reduce((a, b) => a + b, 0) / (scores.length * 2)) * 100 
+        : 0;
+
+      return {
+        id: q.id,
+        text: q.text,
+        type: q.type,
+        distribution,
+        avgScore,
+        responsesCount: responses.length
+      };
+    }).filter(q => q.responsesCount > 0);
+
+    return {
+      questionAnalysis,
+      resolutionStats: {
+        satisfaction: [
+          { name: 'Boa', value: protocols.filter(p => p.resolution_summary?.includes('Satisfação: Boa')).length },
+          { name: 'Regular', value: protocols.filter(p => p.resolution_summary?.includes('Satisfação: Regular')).length },
+          { name: 'Ruim', value: protocols.filter(p => p.resolution_summary?.includes('Satisfação: Ruim')).length }
+        ],
+        repurchase: [
+          { name: 'Sim', value: protocols.filter(p => p.resolution_summary?.includes('Retornou Compra: Sim')).length },
+          { name: 'Não', value: protocols.filter(p => p.resolution_summary?.includes('Retornou Compra: Não')).length }
+        ]
+      }
+    };
+  }
 };

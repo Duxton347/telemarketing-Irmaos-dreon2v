@@ -364,7 +364,6 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
         })}
       </div>
 
-      {/* MODAL REJEIÇÃO */}
       {rejectProtocol && (
         <div className="fixed inset-0 z-[260] flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4">
           <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
@@ -389,109 +388,6 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
         </div>
       )}
 
-      {/* MODAL REATRIBUIÇÃO */}
-      {reassignProtocol && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
-          <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
-            <div className="bg-indigo-900 p-6 text-white flex justify-between items-center">
-              <h3 className="font-black uppercase text-sm tracking-widest">Reatribuir Protocolo</h3>
-              <button onClick={() => setReassignProtocol(null)}><X size={20} /></button>
-            </div>
-            <div className="p-8 space-y-4">
-              <div className="max-h-60 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                {operators.filter(u => u.role === UserRole.OPERATOR).map(op => (
-                  <button key={op.id} onClick={() => handleReassign(op.id)} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between group hover:bg-indigo-50 hover:border-indigo-200 transition-all">
-                    <span className="font-black text-slate-800 text-sm">{op.name}</span>
-                    <ChevronRight size={16} className="text-slate-300 group-hover:text-indigo-600" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL RESOLUÇÃO */}
-      {resolveProtocol && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
-          <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
-            <div className="bg-green-600 p-8 text-white flex justify-between items-center">
-              <h3 className="font-black uppercase text-sm tracking-widest">Resolução do Protocolo</h3>
-              <button onClick={() => setResolveProtocol(null)}><X size={24} /></button>
-            </div>
-            <div className="p-10 space-y-6">
-              <textarea 
-                required
-                value={resolveForm.summary} 
-                onChange={e => setResolveForm({...resolveForm, summary: e.target.value})}
-                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm h-32 resize-none outline-none focus:ring-4 focus:ring-green-500/10" 
-                placeholder="Descreva a solução aplicada..."
-              />
-              <div className="grid grid-cols-2 gap-4">
-                <select value={resolveForm.satisfaction} onChange={e => setResolveForm({...resolveForm, satisfaction: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
-                  <option value="Boa">Boa 😊</option>
-                  <option value="Regular">Regular 😐</option>
-                  <option value="Ruim">Ruim 😞</option>
-                </select>
-                <select value={resolveForm.repurchase} onChange={e => setResolveForm({...resolveForm, repurchase: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
-                  <option value="Sim">Sim 💰</option>
-                  <option value="Não">Não</option>
-                </select>
-              </div>
-              <button onClick={handleFinalResolve} className="w-full py-6 bg-green-600 text-white rounded-[32px] font-black uppercase tracking-widest text-[11px] shadow-xl hover:bg-green-700 transition-all">Enviar para Aprovação</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL NOVO */}
-      {isNewModalOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
-           <div className="bg-white w-full max-w-2xl max-h-[90vh] rounded-[40px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-300">
-              <div className="bg-slate-900 p-8 text-white flex justify-between items-center shrink-0">
-                 <h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-2">Novo Protocolo</h3>
-                 <button onClick={() => setIsNewModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-all"><X size={24} /></button>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto p-10 space-y-8 custom-scrollbar">
-                 <section className="space-y-4">
-                    <select value={newProto.clientId} onChange={e => setNewProto({...newProto, clientId: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none cursor-pointer">
-                      <option value="">-- Cliente Manual --</option>
-                      {clients.map(c => <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>)}
-                    </select>
-                    {!newProto.clientId && (
-                      <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100 space-y-4 animate-in fade-in slide-in-from-top-2">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <input type="text" placeholder="Nome" value={newProto.manualName} onChange={e => setNewProto({...newProto, manualName: e.target.value})} className="p-4 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none" />
-                          <input type="text" placeholder="Telefone" value={newProto.manualPhone} onChange={e => setNewProto({...newProto, manualPhone: e.target.value})} className="p-4 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none" />
-                        </div>
-                      </div>
-                    )}
-                    <input type="text" placeholder="Título" value={newProto.title} onChange={e => setNewProto({...newProto, title: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none" />
-                    <textarea placeholder="Descrição..." value={newProto.description} onChange={e => setNewProto({...newProto, description: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm h-32 resize-none outline-none" />
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                       <select value={newProto.departmentId} onChange={e => setNewProto({...newProto, departmentId: e.target.value})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
-                          {config.departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                       </select>
-                       <select value={newProto.priority} onChange={e => setNewProto({...newProto, priority: e.target.value as any})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
-                          <option value="Baixa">Baixa</option>
-                          <option value="Média">Média</option>
-                          <option value="Alta">Alta</option>
-                       </select>
-                       <select value={newProto.ownerOperatorId} onChange={e => setNewProto({...newProto, ownerOperatorId: e.target.value})} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
-                          <option value={user.id}>Comigo</option>
-                          {operators.filter(u => u.role === UserRole.OPERATOR).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                       </select>
-                    </div>
-                 </section>
-
-                 <button onClick={handleManualSave} className="w-full py-6 bg-slate-900 text-white rounded-[32px] font-black uppercase tracking-widest text-[11px] shadow-2xl active:scale-95 transition-all">Abrir Protocolo Oficial</button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* MODAL DETALHE COMPLETO */}
       {selectedProtocol && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 overflow-hidden">
            <div className="bg-white w-full max-w-5xl max-h-[95vh] rounded-[40px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-300">
@@ -525,7 +421,6 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
                             <div key={e.id} className="flex gap-4">
                                <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 shrink-0"><History size={16} /></div>
                                <div>
-                                  {/* Fix property name from event_type to eventType in ProtocolEvent mapping */}
                                   <p className="text-[10px] font-black text-slate-800 uppercase tracking-tight">{e.eventType === 'status_change' ? 'Mudança de Status' : 'Nota de Auditoria'}</p>
                                   <p className="text-xs text-slate-500 font-medium italic">{e.note}</p>
                                   <span className="text-[8px] text-slate-400 font-black uppercase">{new Date(e.createdAt).toLocaleString()}</span>

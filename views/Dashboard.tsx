@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { 
-  PhoneCall, Clock, AlertCircle, TrendingUp, BarChart3, Users, ClipboardList, Filter, X, ChevronRight, MessageCircle, UserCheck, PhoneForwarded, Loader2
+  PhoneCall, Clock, AlertCircle, TrendingUp, BarChart3, Users, ClipboardList, Filter, X, ChevronRight, MessageCircle, UserCheck, PhoneForwarded, Loader2, Eye, FileText
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Tooltip as PieTooltip
@@ -23,6 +23,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const [activeModal, setActiveModal] = React.useState<'calls' | 'queue' | 'time' | null>(null);
   const [detailedData, setDetailedData] = React.useState<any[]>([]);
   const [isModalLoading, setIsModalLoading] = React.useState(false);
+  const [selectedAuditCall, setSelectedAuditCall] = React.useState<any>(null);
 
   const [stats, setStats] = React.useState({
     totalCalls: 0,
@@ -45,7 +46,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     setOperators(allUsers.filter(u => u && u.role === UserRole.OPERATOR));
     const filterId = user?.role === UserRole.OPERATOR ? user.id : selectedFilter;
     
-    const displayCalls = filterId === 'all' ? calls : calls.filter(c => c.operatorId === filterId);
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    // Filtro rigoroso: Apenas ligações registradas hoje
+    const displayCalls = (filterId === 'all' ? calls : calls.filter(c => c.operatorId === filterId))
+      .filter(c => c.start_time && c.start_time.startsWith(todayStr));
+
     const displayTasks = filterId === 'all' 
       ? tasks.filter(t => t.status === 'pending')
       : tasks.filter(t => t.assignedTo === filterId && t.status === 'pending');
@@ -69,12 +75,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     }).reverse();
 
     setChartData(last7Days.map(day => {
-      const dayCalls = displayCalls.filter(c => new Date(c.startTime).toLocaleDateString('pt-BR', { weekday: 'short' }) === day);
+      const dayCalls = (filterId === 'all' ? calls : calls.filter(c => c.operatorId === filterId))
+        .filter(c => new Date(c.start_time).toLocaleDateString('pt-BR', { weekday: 'short' }) === day);
       return { 
         name: day, 
-        venda: dayCalls.filter(c => c.type === CallType.VENDA).length,
-        posVenda: dayCalls.filter(c => c.type === CallType.POS_VENDA).length,
-        prospeccao: dayCalls.filter(c => c.type === CallType.PROSPECCAO).length,
+        venda: dayCalls.filter(c => c.call_type === CallType.VENDA).length,
+        posVenda: dayCalls.filter(c => c.call_type === CallType.POS_VENDA).length,
+        prospeccao: dayCalls.filter(c => c.call_type === CallType.PROSPECCAO).length,
       };
     }));
 
@@ -161,8 +168,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10, fontWeight: 900}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10, fontWeight: 900}} />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10, fontBold: 900}} />
+                <YAxis axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10, fontBold: 900}} />
                 <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '24px', border: 'none', boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.25)'}} />
                 <Bar dataKey="posVenda" stackId="a" fill="#10b981" radius={[2, 2, 0, 0]} />
                 <Bar dataKey="venda" stackId="a" fill="#2563eb" radius={[2, 2, 0, 0]} />
@@ -203,7 +210,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* MODAL DETALHES GERAL */}
+      {/* MODAL AUDITORIA DETALHADA ADMIN */}
       {activeModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-white w-full max-w-6xl max-h-[90vh] rounded-[56px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-300">
@@ -211,9 +218,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                <div>
                  <h3 className="text-2xl font-black uppercase tracking-tighter flex items-center gap-4">
                     {activeModal === 'calls' || activeModal === 'time' ? <PhoneCall className="text-blue-400" /> : <ClipboardList className="text-yellow-400" />}
-                    {activeModal === 'calls' ? 'Relatório de Ligações Hoje' : activeModal === 'time' ? 'Ranking de Duração de Chamadas' : 'Fila de Atendimento Pendente'}
+                    {activeModal === 'calls' ? 'Auditoria de Ligações Hoje' : activeModal === 'time' ? 'Ranking de Duração' : 'Fila Pendente'}
                  </h3>
-                 <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mt-2">Visão Detalhada Dreon</p>
+                 <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mt-2">Visão Total do Administrador</p>
                </div>
                <button onClick={() => setActiveModal(null)} className="p-4 hover:bg-white/10 rounded-full transition-all active:scale-90"><X size={32} /></button>
             </div>
@@ -222,7 +229,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                {isModalLoading ? (
                  <div className="h-64 flex flex-col items-center justify-center gap-4 text-slate-300">
                     <Loader2 className="animate-spin" size={48} />
-                    <p className="font-black uppercase text-[10px] tracking-widest">Sincronizando com Supabase...</p>
+                    <p className="font-black uppercase text-[10px] tracking-widest">Sincronizando Dados...</p>
                  </div>
                ) : (
                  <div className="space-y-4">
@@ -231,49 +238,43 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                         <table className="w-full text-left">
                           <thead>
                             <tr className="border-b border-slate-100">
-                               <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest px-4">Entidade / Cliente</th>
-                               <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest px-4">Contato / Canal</th>
+                               <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest px-4">Cliente / Entidade</th>
                                <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest px-4">Operador</th>
-                               <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest px-4">{activeModal === 'calls' || activeModal === 'time' ? 'Duração / Respostas' : 'Tipo / Carga'}</th>
+                               <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest px-4">Duração</th>
+                               <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest px-4">Relatório / Questionário</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
                              {detailedData.map((item, idx) => (
-                               <tr key={idx} className="group hover:bg-slate-50/50 transition-all">
+                               <tr key={idx} className="group hover:bg-slate-50 transition-all">
                                   <td className="py-6 px-4">
                                      <p className="font-black text-slate-800 text-lg">{item.clients?.name}</p>
-                                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">ID: {item.client_id?.substring(0,8)}</span>
-                                  </td>
-                                  <td className="py-6 px-4">
-                                     <div className="flex items-center gap-2 font-bold text-blue-600">
-                                        <MessageCircle size={14} /> {item.clients?.phone}
+                                     <span className="text-[10px] font-black text-blue-500 uppercase">{item.clients?.phone}</span>
+                                     <div className="flex gap-1 mt-1">
+                                        {item.clients?.items?.map((it: string) => (
+                                          <span key={it} className="bg-slate-100 text-[8px] font-black uppercase px-2 py-0.5 rounded-md">{it}</span>
+                                        ))}
                                      </div>
                                   </td>
                                   <td className="py-6 px-4">
                                      <div className="flex items-center gap-2">
-                                        <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-slate-900 font-black text-xs">{item.profiles?.username_display?.charAt(0)}</div>
+                                        <div className="w-8 h-8 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xs">{item.profiles?.username_display?.charAt(0)}</div>
                                         <span className="font-bold text-slate-700">{item.profiles?.username_display}</span>
                                      </div>
                                   </td>
                                   <td className="py-6 px-4">
-                                     {activeModal === 'calls' || activeModal === 'time' ? (
-                                       <div className="space-y-1">
-                                          <div className={`flex items-center gap-2 font-black text-sm ${activeModal === 'time' ? 'text-blue-600 scale-110 origin-left' : 'text-slate-900'}`}>
-                                             <Clock size={14} className={activeModal === 'time' ? 'text-blue-400' : 'text-slate-300'} /> 
-                                             {Math.floor(item.duration/60)}m {item.duration%60}s
-                                          </div>
-                                          <div className="flex flex-wrap gap-1 mt-1">
-                                             {Object.entries(item.responses || {}).filter(([k]) => k !== 'summary').slice(0, 3).map(([k, v]: any) => (
-                                               <span key={k} className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-[8px] font-black uppercase">{v}</span>
-                                             ))}
-                                          </div>
-                                       </div>
-                                     ) : (
-                                       <div className="flex items-center gap-3">
-                                          <span className="px-3 py-1 bg-slate-900 text-white rounded-lg text-[9px] font-black uppercase tracking-widest">{item.type}</span>
-                                          <PhoneForwarded size={14} className="text-slate-200" />
-                                       </div>
-                                     )}
+                                     <div className="font-black text-slate-900 flex items-center gap-2">
+                                        <Clock size={14} className="text-slate-300" />
+                                        {Math.floor(item.duration/60)}m {item.duration%60}s
+                                     </div>
+                                  </td>
+                                  <td className="py-6 px-4">
+                                     <button 
+                                      onClick={() => setSelectedAuditCall(item)}
+                                      className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+                                     >
+                                        <Eye size={14} /> Ver Auditoria Completa
+                                     </button>
                                   </td>
                                </tr>
                              ))}
@@ -281,16 +282,80 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                         </table>
                      </div>
                    ) : (
-                     <div className="py-20 text-center text-slate-300 font-black uppercase tracking-widest text-xs opacity-50">Nenhum registro para exibir neste momento.</div>
+                     <div className="py-20 text-center text-slate-300 font-black uppercase tracking-widest text-xs opacity-50">Sem ligações registradas hoje.</div>
                    )}
                  </div>
                )}
             </div>
             
             <div className="p-8 bg-slate-50 border-t border-slate-100 flex justify-end shrink-0">
-               <button onClick={() => setActiveModal(null)} className="px-10 py-4 bg-slate-900 text-white rounded-[24px] font-black uppercase tracking-widest text-[11px] shadow-2xl active:scale-95 transition-all">Fechar Detalhes</button>
+               <button onClick={() => setActiveModal(null)} className="px-10 py-4 bg-slate-900 text-white rounded-[24px] font-black uppercase tracking-widest text-[11px] shadow-2xl active:scale-95 transition-all">Fechar</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* MODAL DETALHE DA LIGAÇÃO (Auditoria Questionário) */}
+      {selectedAuditCall && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/90 backdrop-blur-xl p-4 animate-in fade-in zoom-in duration-300">
+           <div className="bg-white w-full max-w-4xl max-h-[85vh] rounded-[56px] shadow-2xl flex flex-col overflow-hidden">
+              <div className="bg-slate-900 p-10 text-white flex justify-between items-center shrink-0">
+                 <div>
+                    <h3 className="text-2xl font-black uppercase tracking-tighter">Ficha de Auditoria</h3>
+                    <p className="text-blue-400 text-[10px] font-black uppercase tracking-widest mt-1">
+                      {selectedAuditCall.clients?.name} &bull; Operador: {selectedAuditCall.profiles?.username_display}
+                    </p>
+                 </div>
+                 <button onClick={() => setSelectedAuditCall(null)} className="p-3 hover:bg-white/10 rounded-full transition-all"><X size={28} /></button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-12 space-y-12 custom-scrollbar">
+                 <section className="space-y-6">
+                    <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-3">
+                       <FileText className="text-blue-600" size={20} /> Relatório Escrito do Operador
+                    </h4>
+                    <div className="p-8 bg-slate-50 rounded-[32px] border border-slate-100 text-slate-800 font-bold italic whitespace-pre-wrap leading-relaxed">
+                       {selectedAuditCall.responses?.written_report || "Nenhum relatório escrito registrado."}
+                    </div>
+                 </section>
+
+                 <section className="space-y-6">
+                    <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-3">
+                       <ClipboardList className="text-indigo-600" size={20} /> Respostas do Questionário
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                       {Object.entries(selectedAuditCall.responses || {}).filter(([k]) => k !== 'written_report' && k !== 'call_type').map(([qId, response]: any) => {
+                          const questionText = dataService.getQuestions().find(q => q.id === qId)?.text || qId;
+                          return (
+                             <div key={qId} className="p-6 bg-white border border-slate-100 rounded-[28px] shadow-sm flex flex-col justify-between">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-2">{questionText}</p>
+                                <span className={`self-start px-4 py-2 rounded-xl text-xs font-black uppercase shadow-sm ${
+                                  response === 'Ótimo' || response === 'Sim' || response === 'Atendeu' ? 'bg-green-600 text-white' :
+                                  response === 'Ruim' || response === 'Não' || response === 'Não atendeu' ? 'bg-red-600 text-white' : 'bg-slate-900 text-white'
+                                }`}>
+                                   {response}
+                                </span>
+                             </div>
+                          );
+                       })}
+                    </div>
+                 </section>
+              </div>
+              
+              <div className="p-10 bg-slate-50 border-t border-slate-100 flex justify-between items-center shrink-0">
+                 <div className="flex gap-6">
+                    <div className="text-center">
+                       <p className="text-[9px] font-black text-slate-400 uppercase">Duração</p>
+                       <p className="font-black text-slate-900">{Math.floor(selectedAuditCall.duration/60)}m {selectedAuditCall.duration%60}s</p>
+                    </div>
+                    <div className="text-center">
+                       <p className="text-[9px] font-black text-slate-400 uppercase">Preenchimento</p>
+                       <p className="font-black text-slate-900">{Math.floor(selectedAuditCall.report_time/60)}m {selectedAuditCall.report_time%60}s</p>
+                    </div>
+                 </div>
+                 <button onClick={() => setSelectedAuditCall(null)} className="px-10 py-4 bg-slate-900 text-white rounded-[24px] font-black uppercase tracking-widest text-[11px] shadow-2xl active:scale-95 transition-all">Concluído</button>
+              </div>
+           </div>
         </div>
       )}
     </div>
