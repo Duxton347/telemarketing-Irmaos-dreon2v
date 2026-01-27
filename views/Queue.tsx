@@ -14,6 +14,7 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
   const [currentTask, setCurrentTask] = React.useState<Task | null>(null);
   const [client, setClient] = React.useState<Client | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isProcessing, setIsProcessing] = React.useState(false);
   
   // Call states
   const [isCalling, setIsCalling] = React.useState(false);
@@ -42,11 +43,11 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
     'Erro de Cadastro / Duplicidade'
   ];
 
-  const fetchQueue = React.useCallback(async () => {
-    setIsLoading(true);
+  const fetchQueue = React.useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true);
     try {
       const allTasks = await dataService.getTasks();
-      // Filtra tarefas conforme o modo (Pendentes de hoje ou Puladas para retorno)
+      // Filtra tarefas do usuário logado conforme o status (Pendente ou Pulada)
       const myTasks = allTasks.filter(t => t.assignedTo === user.id && t.status === viewMode);
       
       if (myTasks.length > 0) {
@@ -57,7 +58,7 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
         setCurrentTask(task);
         setClient(foundClient || null);
         
-        // Reset call inputs
+        // Reseta estados de atendimento
         setResponses({});
         setCallSummary('');
         setCallDuration(0);
@@ -72,12 +73,16 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
     } catch (e) {
       console.error("Erro ao buscar fila:", e);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, [user.id, viewMode]);
 
-  React.useEffect(() => { fetchQueue(); }, [fetchQueue]);
+  // Carrega a fila ao mudar de modo ou ao iniciar
+  React.useEffect(() => { 
+    fetchQueue(); 
+  }, [fetchQueue]);
 
+  // Cronômetros
   React.useEffect(() => {
     if (isCalling) timerRef.current = setInterval(() => setCallDuration(d => d + 1), 1000);
     else if (isFillingReport) timerRef.current = setInterval(() => setReportDuration(d => d + 1), 1000);
@@ -101,23 +106,41 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
     }
   };
 
+  // FUNÇÃO CORRIGIDA: Pular tarefa com transição imediata
   const handleSkip = async () => {
-    if (!currentTask || !skipReason) return;
+    if (!currentTask || !skipReason || isProcessing) return;
+    
+    setIsProcessing(true);
     try {
-      await dataService.updateTask(currentTask.id, { 
+      // 1. Atualiza no banco de dados
+      const success = await dataService.updateTask(currentTask.id, { 
         status: 'skipped', 
         skipReason: skipReason 
       });
-      setIsSkipModalOpen(false);
-      setSkipReason('');
-      fetchQueue(); // Pula para o próximo automaticamente
+      
+      if (success) {
+        // 2. Limpa estados locais e fecha o modal IMEDIATAMENTE
+        setIsSkipModalOpen(false);
+        setSkipReason('');
+        setCurrentTask(null);
+        setClient(null);
+        
+        // 3. Busca a próxima tarefa e reseta o processamento
+        await fetchQueue();
+      } else {
+        alert("Falha ao salvar descarte. Verifique sua conexão ou permissões.");
+      }
     } catch (e) {
-      alert("Erro ao descartar tarefa: " + e);
+      console.error("Erro no Skip:", e);
+      alert("Erro ao descartar tarefa.");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleFinish = async () => {
-    if (!currentTask || !client) return;
+    if (!currentTask || !client || isProcessing) return;
+    setIsProcessing(true);
     try {
       let pId;
       if (shouldOpenProtocol) {
@@ -159,16 +182,19 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
       });
 
       await dataService.updateTask(currentTask.id, { status: 'completed' });
-      fetchQueue();
+      setCurrentTask(null); 
+      await fetchQueue();
     } catch (e) {
       alert("Falha ao salvar atendimento: " + e);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  if (isLoading) return (
+  if (isLoading && !currentTask) return (
     <div className="flex flex-col items-center py-40 gap-4">
       <Loader2 className="animate-spin text-blue-600" size={40} />
-      <p className="font-black text-slate-400 uppercase tracking-widest text-xs">Atualizando fila de chamadas...</p>
+      <p className="font-black text-slate-400 uppercase tracking-widest text-xs">Sincronizando fila...</p>
     </div>
   );
 
@@ -177,31 +203,33 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
       {/* SELETOR DE FILA */}
       <div className="flex bg-white p-2 rounded-[32px] border border-slate-200 shadow-sm w-fit mx-auto mb-10">
          <button 
+           disabled={isProcessing}
            onClick={() => setViewMode('pending')} 
-           className={`px-10 py-4 rounded-[24px] text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'pending' ? 'bg-slate-900 text-white shadow-xl' : 'text-slate-400'}`}
+           className={`px-10 py-4 rounded-[24px] text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'pending' ? 'bg-slate-900 text-white shadow-xl' : 'text-slate-400 hover:text-slate-600'}`}
          >
            Fila de Hoje
          </button>
          <button 
+           disabled={isProcessing}
            onClick={() => setViewMode('skipped')} 
-           className={`px-10 py-4 rounded-[24px] text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'skipped' ? 'bg-red-600 text-white shadow-xl' : 'text-slate-400'}`}
+           className={`px-10 py-4 rounded-[24px] text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'skipped' ? 'bg-red-600 text-white shadow-xl' : 'text-slate-400 hover:text-red-600'}`}
          >
            Chamadas Puladas / Retorno
          </button>
       </div>
 
       {!currentTask ? (
-        <div className="flex flex-col items-center py-40 gap-4 opacity-30 text-center">
+        <div className="flex flex-col items-center py-40 gap-4 opacity-30 text-center animate-in fade-in duration-700">
           <ClipboardList size={60} />
           <p className="font-black text-slate-500 uppercase tracking-widest text-sm">
-            {viewMode === 'pending' ? 'Sua fila principal está limpa!' : 'Não há chamadas puladas para retornar.'}
+            {viewMode === 'pending' ? 'Excelente! Sua fila de hoje está vazia.' : 'Nenhuma chamada pulada para retornar.'}
           </p>
           {viewMode === 'skipped' && (
             <button onClick={() => setViewMode('pending')} className="mt-4 text-blue-600 font-black uppercase text-[10px] underline">Voltar para fila principal</button>
           )}
         </div>
       ) : (
-        <>
+        <div className="animate-in slide-in-from-bottom-6 duration-500">
           {/* FICHA DO CLIENTE */}
           <div className="bg-white p-10 rounded-[48px] shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
             <div className="space-y-3 flex-1">
@@ -212,7 +240,7 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
                  <span className="text-slate-300 font-black text-xs uppercase tracking-widest">#{currentTask.id.substring(0,8)}</span>
                  {viewMode === 'skipped' && (
                     <span className="bg-red-50 text-red-600 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-tight flex items-center gap-2">
-                       <AlertTriangle size={12} /> Motivo: {currentTask.skipReason}
+                       <AlertTriangle size={12} /> Pulado por: {currentTask.skipReason}
                     </span>
                  )}
               </div>
@@ -240,7 +268,7 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
                {viewMode === 'pending' && !isCalling && !isFillingReport && (
                  <button 
                    onClick={() => setIsSkipModalOpen(true)}
-                   className="p-5 bg-slate-50 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-[32px] transition-all group shadow-sm"
+                   className="p-5 bg-slate-50 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-[32px] transition-all group shadow-sm active:scale-90"
                    title="Pular / Retornar Depois"
                  >
                     <SkipForward size={24} className="group-hover:translate-x-1 transition-transform" />
@@ -255,11 +283,11 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-8 mt-8">
             <div className="md:col-span-8 space-y-8">
                <div className="bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm">
                   <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                     <Package size={14} className="text-blue-500" /> Detalhes do Contrato
+                     <Package size={14} className="text-blue-500" /> Itens de Contrato / Equipamento
                   </h3>
                   <div className="flex flex-wrap gap-2">
                      {client?.items && client.items.length > 0 ? client.items.map(item => (
@@ -278,17 +306,17 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
                        </div>
                        <div className="space-y-2">
                           <h3 className="text-3xl font-black text-slate-900 tracking-tight">
-                             {viewMode === 'skipped' ? 'Retomar Chamada' : 'Iniciar Atendimento'}
+                             {viewMode === 'skipped' ? 'Nova Tentativa' : 'Iniciar Chamada'}
                           </h3>
                           <p className="text-slate-400 font-bold max-w-sm mx-auto">
-                             {viewMode === 'skipped' ? 'Você está tentando falar novamente com este cliente.' : 'Confirme os dados e disca o número acima.'}
+                             {viewMode === 'skipped' ? 'Retomando contato descartado anteriormente.' : 'Certifique-se de que o número está correto no discador.'}
                           </p>
                        </div>
                        <button 
                         onClick={() => { setIsCalling(true); setStartTime(new Date().toISOString()); }} 
                         className={`px-16 py-6 text-white rounded-[32px] font-black uppercase tracking-[0.2em] text-xs shadow-2xl hover:-translate-y-1 transition-all active:scale-95 ${viewMode === 'skipped' ? 'bg-red-600 shadow-red-600/30' : 'bg-blue-600 shadow-blue-600/30'}`}
                        >
-                         {viewMode === 'skipped' ? 'Tentar Novo Contato' : 'Iniciar Agora'}
+                         {viewMode === 'skipped' ? 'Tentar de Novo' : 'Discar Agora'}
                        </button>
                     </div>
                   ) : (
@@ -325,15 +353,15 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
                        
                        {isCalling ? (
                          <button onClick={() => { setIsCalling(false); setIsFillingReport(true); }} className="w-full py-7 bg-red-600 text-white rounded-[32px] font-black uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-4 shadow-xl shadow-red-600/20 active:scale-95 transition-all">
-                           <PhoneOff size={20} /> Encerrar Ligação
+                           <PhoneOff size={20} /> Finalizar Linha
                          </button>
                        ) : (
                          <button 
                            onClick={handleFinish} 
-                           disabled={!callSummary.trim()}
+                           disabled={!callSummary.trim() || isProcessing}
                            className="w-full py-7 bg-slate-900 text-white rounded-[32px] font-black uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-4 shadow-2xl active:scale-95 transition-all disabled:opacity-50"
                          >
-                           <Save size={20} /> Concluir e Salvar
+                           {isProcessing ? <Loader2 className="animate-spin" /> : <><Save size={20} /> Salvar Ficha e Ir Próximo</>}
                          </button>
                        )}
                     </div>
@@ -356,46 +384,47 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
                   {shouldOpenProtocol ? (
                     <div className="space-y-5 animate-in slide-in-from-top-4">
                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Assunto do Incidente</label>
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Assunto</label>
                           <input placeholder="Título resumido" value={protocolData.title} onChange={e => setProtocolData({...protocolData, title: e.target.value})} className="w-full p-4 bg-white border border-red-100 rounded-2xl text-xs font-bold outline-none" />
                        </div>
                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Departamento</label>
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Para quem?</label>
                           <select value={protocolData.departmentId} onChange={e => setProtocolData({...protocolData, departmentId: e.target.value})} className="w-full p-4 bg-white border border-red-100 rounded-2xl text-[10px] font-black uppercase outline-none cursor-pointer">
                              {dataService.getProtocolConfig().departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                           </select>
                        </div>
                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Relato do Problema</label>
-                          <textarea placeholder="Relate as falhas..." value={protocolData.description} onChange={e => setProtocolData({...protocolData, description: e.target.value})} className="w-full p-4 bg-white border border-red-100 rounded-2xl h-32 text-xs font-bold resize-none outline-none" />
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Descrição</label>
+                          <textarea placeholder="O que o cliente reclamou?" value={protocolData.description} onChange={e => setProtocolData({...protocolData, description: e.target.value})} className="w-full p-4 bg-white border border-red-100 rounded-2xl h-32 text-xs font-bold resize-none outline-none" />
                        </div>
                     </div>
                   ) : (
-                    <p className="text-xs text-slate-400 font-medium italic">Ative se o cliente relatar um erro técnico ou reclamação grave.</p>
+                    <p className="text-xs text-slate-400 font-medium italic">Abra um protocolo se houver problemas graves ou falhas de produto.</p>
                   )}
                </div>
             </div>
           </div>
-        </>
+        </div>
       )}
 
-      {/* MODAL AUDITADO DE DESCARTE */}
+      {/* MODAL AUDITADO DE DESCARTE (SKIP) */}
       {isSkipModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
            <div className="bg-white w-full max-w-md rounded-[48px] shadow-2xl overflow-hidden animate-in zoom-in duration-300">
               <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
                  <h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3">
-                    <AlertTriangle className="text-yellow-400" /> Auditoria de Descarte
+                    <AlertTriangle className="text-yellow-400" /> Motivo do Descarte
                  </h3>
                  <button onClick={() => setIsSkipModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-all"><X /></button>
               </div>
               <div className="p-10 space-y-8">
                  <div className="space-y-4">
-                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Por que pular este contato?</p>
+                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Selecione o motivo real:</p>
                     <div className="grid grid-cols-1 gap-2">
                        {SKIP_REASONS.map(reason => (
                          <button 
                            key={reason} 
+                           disabled={isProcessing}
                            onClick={() => setSkipReason(reason)}
                            className={`w-full text-left p-4 rounded-2xl text-xs font-black uppercase transition-all border-2 ${skipReason === reason ? 'bg-red-600 text-white border-red-600' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-200'}`}
                          >
@@ -406,13 +435,13 @@ const Queue: React.FC<{ user: any }> = ({ user }) => {
                  </div>
                  
                  <div className="pt-4 flex gap-4">
-                    <button onClick={() => setIsSkipModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancelar</button>
+                    <button onClick={() => setIsSkipModalOpen(false)} disabled={isProcessing} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancelar</button>
                     <button 
                       onClick={handleSkip} 
-                      disabled={!skipReason}
-                      className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl disabled:opacity-50"
+                      disabled={!skipReason || isProcessing}
+                      className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-black/20 disabled:opacity-50 flex items-center justify-center gap-2"
                     >
-                      Mover para Retorno
+                      {isProcessing ? <Loader2 className="animate-spin" size={16} /> : 'Mover para Retorno'}
                     </button>
                  </div>
               </div>

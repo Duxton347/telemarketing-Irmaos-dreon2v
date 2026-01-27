@@ -123,7 +123,12 @@ export const dataService = {
       status: updates.status,
       skip_reason: updates.skipReason
     }).eq('id', taskId);
-    return !error;
+    
+    if (error) {
+      console.error("[Supabase Update Error]", error);
+      return false;
+    }
+    return true;
   },
 
   // --- CLIENTES ---

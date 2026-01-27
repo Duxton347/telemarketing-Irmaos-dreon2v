@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS public.clients (
   updated_at timestamptz DEFAULT now()
 );
 
--- 4. TABELA DE TAREFAS
+-- 4. TABELA DE TAREFAS (COM CORREÇÃO DE COLUNA)
 CREATE TABLE IF NOT EXISTS public.tasks (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   client_id uuid REFERENCES public.clients(id) ON DELETE CASCADE,
@@ -40,7 +40,10 @@ CREATE TABLE IF NOT EXISTS public.tasks (
   created_at timestamptz DEFAULT now()
 );
 
--- 5. TABELA DE CHAMADAS (LOGS CRÍTICOS)
+-- GARANTIR QUE A COLUNA EXISTE (CASO A TABELA TENHA SIDO CRIADA ANTES)
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS skip_reason text;
+
+-- 5. TABELA DE CHAMADAS
 CREATE TABLE IF NOT EXISTS public.call_logs (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   task_id uuid REFERENCES public.tasks(id),
@@ -90,7 +93,7 @@ CREATE TABLE IF NOT EXISTS public.protocol_events (
   created_at timestamptz DEFAULT now()
 );
 
--- 8. TRIGGER DE GERAÇÃO DE PROTOCOLO (CORRIGIDO)
+-- 8. TRIGGER DE GERAÇÃO DE PROTOCOLO
 CREATE OR REPLACE FUNCTION generate_protocol_number() 
 RETURNS TRIGGER AS $$
 DECLARE
@@ -102,11 +105,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- CORREÇÃO: Remove o trigger se ele já existir antes de criar
 DROP TRIGGER IF EXISTS tr_generate_protocol_number ON public.protocols;
-
 CREATE TRIGGER tr_generate_protocol_number
 BEFORE INSERT ON public.protocols
 FOR EACH ROW
 WHEN (NEW.protocol_number IS NULL)
 EXECUTE FUNCTION generate_protocol_number();
+
+-- FORÇAR RECARREGAMENTO DO CACHE DO SUPABASE
+NOTIFY pgrst, 'reload schema';
