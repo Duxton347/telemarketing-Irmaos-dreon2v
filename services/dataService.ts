@@ -128,6 +128,11 @@ export const dataService = {
     await supabase.from('tasks').update(payload).eq('id', taskId);
   },
 
+  deleteTask: async (taskId: string): Promise<void> => {
+    const { error } = await supabase.from('tasks').delete().eq('id', taskId);
+    if (error) throw error;
+  },
+
   getCalls: async (): Promise<CallRecord[]> => {
     const { data, error } = await supabase.from('call_logs').select('*').order('start_time', { ascending: false });
     if (error) throw error;
@@ -146,6 +151,22 @@ export const dataService = {
     }));
   },
 
+  // Verifica se o cliente recebeu ligação nos últimos 3 dias
+  checkRecentCall: async (clientId: string): Promise<boolean> => {
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    
+    const { data, error } = await supabase
+      .from('call_logs')
+      .select('id')
+      .eq('client_id', clientId)
+      .gte('start_time', threeDaysAgo.toISOString())
+      .limit(1);
+    
+    if (error) return false;
+    return data && data.length > 0;
+  },
+
   saveCall: async (call: CallRecord): Promise<void> => {
     await supabase.from('call_logs').insert({
       task_id: call.taskId,
@@ -154,15 +175,16 @@ export const dataService = {
       call_type: call.type,
       responses: call.responses,
       duration: call.duration,
-      // Fix: Use camelCase property reportTime from CallRecord interface
       report_time: call.reportTime,
       start_time: call.startTime,
       end_time: call.endTime,
       protocol_id: call.protocolId
     });
+    
+    // Atualiza a data de interação no cliente
+    await supabase.from('clients').update({ last_interaction: new Date().toISOString() }).eq('id', call.clientId);
   },
 
-  // Fix: Add missing detailed call fetching for Dashboard
   getDetailedCallsToday: async () => {
     const todayStr = new Date().toISOString().split('T')[0];
     const { data, error } = await supabase
@@ -174,7 +196,6 @@ export const dataService = {
     return data || [];
   },
 
-  // Fix: Add missing detailed task fetching for Dashboard
   getDetailedPendingTasks: async () => {
     const { data, error } = await supabase
       .from('tasks')
@@ -228,7 +249,19 @@ export const dataService = {
 
   upsertClient: async (client: Partial<Client>): Promise<Client> => {
     const phone = normalizePhone(client.phone || '');
-    const payload: any = { name: client.name, phone, address: client.address, items: client.items, last_interaction: new Date().toISOString() };
+    if (!phone) throw new Error("Telefone obrigatório");
+
+    // Primeiro tentamos ver se já existe esse telefone
+    const { data: existing } = await supabase.from('clients').select('*').eq('phone', phone).maybeSingle();
+    
+    const payload: any = { 
+      name: client.name, 
+      phone, 
+      address: client.address || existing?.address || '', 
+      items: Array.from(new Set([...(existing?.items || []), ...(client.items || [])])),
+      last_interaction: existing?.last_interaction || new Date().toISOString()
+    };
+
     const { data, error } = await supabase.from('clients').upsert(payload, { onConflict: 'phone' }).select().single();
     if (error) throw error;
     return data;

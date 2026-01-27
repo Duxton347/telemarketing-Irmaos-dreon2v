@@ -1,7 +1,8 @@
+
 import React from 'react';
 import { 
   Phone, PhoneOff, SkipForward, Play, CheckCircle2, 
-  Loader2, Clock, MapPin, User, FileText, AlertCircle, Save, X, MessageCircle, Copy, Check, ChevronRight
+  Loader2, Clock, MapPin, User, FileText, AlertCircle, Save, X, MessageCircle, Copy, Check, ChevronRight, AlertTriangle
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { Task, Client, Question, CallType, OperatorEventType } from '../types';
@@ -27,6 +28,7 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
   const [reportDuration, setReportDuration] = React.useState(0);
   const [startTime, setStartTime] = React.useState<string | null>(null);
   const [isCopied, setIsCopied] = React.useState(false);
+  const [hasRecentCall, setHasRecentCall] = React.useState(false);
 
   const resetState = React.useCallback(() => {
     setIsCalling(false);
@@ -37,6 +39,7 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
     setResponses({});
     setCallSummary('');
     setStartTime(null);
+    setHasRecentCall(false);
   }, []);
 
   const fetchQueue = React.useCallback(async () => {
@@ -53,6 +56,12 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
         const foundClient = allClients.find(c => c.id === myTask.clientId);
         setCurrentTask(myTask);
         setClient(foundClient || null);
+        
+        // Verifica se houve ligação recente (3 dias) para alertar o operador
+        if (foundClient) {
+          const recent = await dataService.checkRecentCall(foundClient.id);
+          setHasRecentCall(recent);
+        }
       } else {
         setCurrentTask(null);
         setClient(null);
@@ -169,8 +178,15 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in duration-500 pb-20">
       {/* FICHA DO CLIENTE */}
       <div className="lg:col-span-4 space-y-6">
-        <div className="bg-slate-900 rounded-[48px] p-10 text-white shadow-2xl space-y-8">
-           <div>
+        <div className="bg-slate-900 rounded-[48px] p-10 text-white shadow-2xl space-y-8 relative overflow-hidden">
+           {hasRecentCall && (
+             <div className="absolute top-0 left-0 w-full bg-red-600 text-white py-2 px-4 text-center animate-pulse flex items-center justify-center gap-2">
+               <AlertTriangle size={14} /> 
+               <span className="text-[9px] font-black uppercase tracking-widest">Atenção: Ligado nos últimos 3 dias</span>
+             </div>
+           )}
+
+           <div className={hasRecentCall ? 'pt-6' : ''}>
              <span className="px-3 py-1 bg-blue-600 rounded-lg text-[9px] font-black uppercase tracking-widest">{currentTask.type}</span>
              <h3 className="text-3xl font-black mt-4 tracking-tighter uppercase">{client.name}</h3>
            </div>
@@ -238,6 +254,16 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
              </header>
 
              <div className="flex-1 p-10 space-y-12 overflow-y-auto">
+                {hasRecentCall && (
+                  <div className="p-6 bg-red-50 border border-red-100 rounded-[32px] flex items-center gap-4 text-red-600">
+                     <AlertCircle size={32} />
+                     <div>
+                        <p className="font-black uppercase text-[10px] tracking-widest">Alerta de Quarentena</p>
+                        <p className="text-xs font-bold">Este cliente já recebeu uma ligação nos últimos 3 dias. Verifique se realmente é necessário prosseguir.</p>
+                     </div>
+                  </div>
+                )}
+
                 <section className="space-y-6">
                    <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-3">
                       <CheckCircle2 size={18} className="text-blue-600" /> Questionário Obrigatório

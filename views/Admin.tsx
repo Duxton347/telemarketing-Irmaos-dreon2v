@@ -4,18 +4,20 @@ import {
   Upload, Users, FileSpreadsheet, X, UserPlus, CheckCircle2, 
   Loader2, Info, AlertCircle, Clock, Database, Trash2, Save,
   MessageSquarePlus, ChevronUp, ChevronDown, Trash, Edit3, RotateCcw,
-  PhoneOff, RefreshCw, ListFilter, Plus, UserCheck, UserMinus, Phone, PlayCircle
+  PhoneOff, RefreshCw, ListFilter, Plus, UserCheck, UserMinus, Phone, PlayCircle, ChevronRight, LayoutList
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { User, UserRole, CallType, Question, Task } from '../types';
 
 const Admin: React.FC = () => {
-  const [activeTab, setActiveTab] = React.useState<'import' | 'users' | 'questions' | 'skips'>('questions');
+  const [activeTab, setActiveTab] = React.useState<'import' | 'users' | 'questions' | 'skips' | 'tasks'>('questions');
   const [users, setUsers] = React.useState<User[]>([]);
   const [questions, setQuestions] = React.useState<Question[]>([]);
   const [skippedTasks, setSkippedTasks] = React.useState<any[]>([]);
+  const [pendingTasks, setPendingTasks] = React.useState<any[]>([]);
   const [csvPreview, setCsvPreview] = React.useState<any[]>([]);
   const [isProcessing, setIsProcessing] = React.useState(false);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [isUserModalOpen, setIsUserModalOpen] = React.useState(false);
   const [isQuestionModalOpen, setIsQuestionModalOpen] = React.useState(false);
   
@@ -44,6 +46,13 @@ const Admin: React.FC = () => {
       }));
       setSkippedTasks(skipped);
 
+      const pending = taskList.filter(t => t.status === 'pending').map(t => ({
+        ...t,
+        client: allClients.find(c => c.id === t.clientId),
+        operator: userList.find(u => u.id === t.assignedTo)
+      }));
+      setPendingTasks(pending);
+
       const operators = userList.filter(u => u.role === UserRole.OPERATOR || u.role === UserRole.SUPERVISOR);
       if (operators.length > 0 && !selectedOperatorId) {
         setSelectedOperatorId(operators[0].id);
@@ -56,6 +65,28 @@ const Admin: React.FC = () => {
   };
 
   React.useEffect(() => { refreshData(); }, []);
+
+  const handleDeleteTask = async (id: string) => {
+    if (!confirm("Confirmar exclusão permanente desta tarefa da fila?")) return;
+    
+    setDeletingId(id);
+    // Backup para reverter se der erro
+    const previousTasks = [...pendingTasks];
+    // Remove da tela na hora (Otimista)
+    setPendingTasks(prev => prev.filter(t => t.id !== id));
+
+    try {
+      await dataService.deleteTask(id);
+      // Sucesso: Não precisa fazer nada, já sumiu da tela.
+    } catch (e: any) {
+      console.error("Erro ao deletar:", e);
+      // Reverte se der erro
+      setPendingTasks(previousTasks);
+      alert(`O banco de dados recusou a exclusão. Verifique se você executou o SQL de permissão (RLS). Erro: ${e.message || 'Desconhecido'}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const handleUpdateUser = async (id: string, updates: Partial<User>) => {
     setIsProcessing(true);
@@ -102,31 +133,65 @@ const Admin: React.FC = () => {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const text = event.target?.result as string;
+        let text = event.target?.result as string;
+        text = text.replace(/^\uFEFF/, "");
+
         const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
-        if (lines.length < 2) {
-          alert("O arquivo CSV está vazio ou contém apenas cabeçalhos.");
+        if (lines.length < 1) {
+          alert("O arquivo está vazio.");
           return;
         }
-        const separator = lines[0].includes(';') ? ';' : ',';
-        const headers = lines[0].split(separator).map(h => h.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ""));
+
+        const firstLine = lines[0];
+        const separator = firstLine.includes(';') ? ';' : ',';
+
+        const normalizeHeader = (h: string) => 
+          h.toLowerCase()
+           .trim()
+           .normalize('NFD')
+           .replace(/[\u0300-\u036f]/g, "")
+           .replace(/[^a-z0-9]/g, '');
+
+        const headers = firstLine.split(separator).map(normalizeHeader);
+
+        const nameIdx = headers.findIndex(h => ['nome', 'cliente', 'name', 'razao'].some(t => h.includes(t)));
+        const phoneIdx = headers.findIndex(h => ['telefone', 'celular', 'phone', 'contato', 'tel'].some(t => h.includes(t)));
+        const equipIdx = headers.findIndex(h => ['equipamento', 'item', 'equipment', 'modelo', 'produto'].some(t => h.includes(t)));
+
+        const finalNameIdx = nameIdx !== -1 ? nameIdx : 0;
+        const finalPhoneIdx = phoneIdx !== -1 ? phoneIdx : 1;
+        const finalEquipIdx = equipIdx !== -1 ? equipIdx : 2;
+
         const rows = lines.slice(1).map(line => {
-          const values = line.split(separator).map(v => v.trim());
-          return headers.reduce((acc, header, i) => { acc[header] = values[i] || ''; return acc; }, {} as any);
-        });
-        const mapped = rows.map(r => ({
-          name: r.nome || r.cliente || r.name,
-          phone: r.telefone || r.celular || r.phone,
-          address: r.endereco || r.address,
-          equipment: r.equipamento || r.item || r.equipment
-        })).filter(r => r.name && r.phone);
-        setCsvPreview(mapped);
+          let values: string[] = [];
+          if (line.includes('"')) {
+             const regex = new RegExp(`${separator}(?=(?:(?:[^"]*"){2})*[^"]*$)`);
+             values = line.split(regex).map(v => v.replace(/^"|"$/g, '').trim());
+          } else {
+             values = line.split(separator).map(v => v.trim());
+          }
+
+          return {
+            name: values[finalNameIdx] || '',
+            phone: values[finalPhoneIdx] || '',
+            address: values[3] || '',
+            equipment: values[finalEquipIdx] || ''
+          };
+        }).filter(r => r.name && r.phone);
+
+        if (rows.length === 0) {
+           alert("Dados inválidos. Verifique a ordem: Nome, Telefone, Equipamento.");
+           return;
+        }
+
+        setCsvPreview(rows);
       } catch (err) { 
         console.error(err);
-        alert("Erro ao ler CSV. Verifique o formato."); 
+        alert("Erro ao ler arquivo."); 
       }
     };
     reader.readAsText(file);
@@ -135,13 +200,19 @@ const Admin: React.FC = () => {
   const runImport = async () => {
     if (csvPreview.length === 0 || isProcessing) return;
     if (!selectedOperatorId) {
-      alert("Selecione um operador para atribuir as tarefas.");
+      alert("Selecione um operador.");
       return;
     }
 
     setIsProcessing(true);
     try {
+      const allTasks = await dataService.getTasks();
+      const pendingByOpAndType = allTasks.filter(t => t.status === 'pending' && t.type === selectedCallType);
+
       let count = 0;
+      let skippedDuplicates = 0;
+      let skippedRecent = 0;
+
       for (const row of csvPreview) {
         const client = await dataService.upsertClient({ 
           name: row.name, 
@@ -149,6 +220,19 @@ const Admin: React.FC = () => {
           address: row.address, 
           items: row.equipment ? [row.equipment] : [] 
         });
+        
+        const isDuplicateTask = pendingByOpAndType.some(t => t.clientId === client.id);
+        if (isDuplicateTask) {
+          skippedDuplicates++;
+          continue;
+        }
+
+        const hasRecentCall = await dataService.checkRecentCall(client.id);
+        if (hasRecentCall) {
+          skippedRecent++;
+          continue;
+        }
+
         await dataService.createTask({ 
           clientId: client.id, 
           type: selectedCallType, 
@@ -156,12 +240,13 @@ const Admin: React.FC = () => {
         });
         count++;
       }
+
       alert(`${count} tarefas importadas com sucesso!`);
       setCsvPreview([]);
       await refreshData();
     } catch (e) {
       console.error(e);
-      alert("Erro durante a importação.");
+      alert("Erro na importação.");
     } finally { setIsProcessing(false); }
   };
 
@@ -170,9 +255,9 @@ const Admin: React.FC = () => {
     try {
       await dataService.updateTask(taskId, { status: 'pending' });
       await refreshData();
-      alert("Tarefa restaurada para a fila com sucesso!");
+      alert("Tarefa restaurada!");
     } catch (e) {
-      alert("Erro ao restaurar tarefa.");
+      alert("Erro ao restaurar.");
     } finally {
       setIsProcessing(false);
     }
@@ -194,6 +279,7 @@ const Admin: React.FC = () => {
         {[
           { id: 'questions', label: 'Questionário', icon: ListFilter },
           { id: 'import', label: 'Carga CSV', icon: FileSpreadsheet },
+          { id: 'tasks', label: 'Fila de Trabalho', icon: LayoutList },
           { id: 'skips', label: 'Recuperar Pulados', icon: RotateCcw },
           { id: 'users', label: 'Equipe', icon: Users }
         ].map(tab => (
@@ -202,6 +288,59 @@ const Admin: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {activeTab === 'tasks' && (
+        <div className="bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm space-y-8 animate-in fade-in duration-300">
+           <div>
+              <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Gerenciar Fila Ativa</h3>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-2">Remova tarefas clicando na lixeira vermelha. A ação é instantânea na interface.</p>
+           </div>
+
+           <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                 <thead>
+                    <tr className="border-b border-slate-100">
+                       <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest px-4">Cliente</th>
+                       <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest px-4">Operador</th>
+                       <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest px-4">Tipo</th>
+                       <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest px-4 text-right">Ações</th>
+                    </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-50">
+                    {pendingTasks.map((task) => (
+                      <tr key={task.id} className="hover:bg-slate-50 transition-all group">
+                         <td className="py-5 px-4">
+                            <p className="font-black text-slate-800">{task.client?.name || 'Carregando...'}</p>
+                            <p className="text-[10px] font-bold text-slate-400">{task.client?.phone}</p>
+                         </td>
+                         <td className="py-5 px-4">
+                            <span className="text-xs font-bold text-slate-600">@{task.operator?.username || 'Desconhecido'}</span>
+                         </td>
+                         <td className="py-5 px-4">
+                            <span className="bg-slate-100 text-slate-500 px-3 py-1 rounded text-[8px] font-black uppercase tracking-widest">{task.type}</span>
+                         </td>
+                         <td className="py-5 px-4 text-right">
+                            <button 
+                              onClick={() => handleDeleteTask(task.id)}
+                              disabled={deletingId === task.id}
+                              className="w-12 h-12 flex items-center justify-center bg-[#ef4444] text-white rounded-2xl hover:bg-red-700 transition-all active:scale-95 shadow-lg shadow-red-500/20 disabled:opacity-50"
+                              title="Excluir tarefa permanentemente"
+                            >
+                               {deletingId === task.id ? <Loader2 className="animate-spin" size={20} /> : <Trash2 size={20} />}
+                            </button>
+                         </td>
+                      </tr>
+                    ))}
+                    {pendingTasks.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="py-20 text-center text-slate-300 font-black uppercase text-xs">A fila de trabalho está vazia.</td>
+                      </tr>
+                    )}
+                 </tbody>
+              </table>
+           </div>
+        </div>
+      )}
 
       {activeTab === 'users' && (
         <div className="bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm space-y-8 animate-in fade-in duration-300">
@@ -298,7 +437,7 @@ const Admin: React.FC = () => {
         <div className="bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm space-y-10 animate-in fade-in duration-300">
            <div>
               <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Carga de Trabalho (CSV)</h3>
-              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-2">Importe clientes e crie tarefas em massa.</p>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-2">Dica: Números contatados nos últimos 3 dias serão ignorados automaticamente.</p>
            </div>
 
            <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
@@ -349,9 +488,9 @@ const Admin: React.FC = () => {
                  </div>
               </div>
 
-              <div className="bg-slate-50 rounded-[40px] p-8 border border-slate-100 flex flex-col">
+              <div className="bg-slate-50 rounded-[40px] p-8 border border-slate-100 flex flex-col h-[500px]">
                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <Info size={14} /> Prévia da Importação
+                    <Info size={14} /> Prévia dos Dados Identificados
                  </h4>
                  <div className="flex-1 overflow-auto custom-scrollbar">
                     {csvPreview.length > 0 ? (
@@ -359,6 +498,7 @@ const Admin: React.FC = () => {
                           <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
                              <tr>
                                 <th className="pb-3 text-slate-400 uppercase tracking-widest">Cliente</th>
+                                <th className="pb-3 text-slate-400 uppercase tracking-widest">Equipamento</th>
                                 <th className="pb-3 text-slate-400 uppercase tracking-widest text-right">Telefone</th>
                              </tr>
                           </thead>
@@ -366,6 +506,7 @@ const Admin: React.FC = () => {
                              {csvPreview.map((row, i) => (
                                <tr key={i}>
                                   <td className="py-3 text-slate-800">{row.name}</td>
+                                  <td className="py-3 text-blue-600 font-black">{row.equipment || '-'}</td>
                                   <td className="py-3 text-slate-500 text-right">{row.phone}</td>
                                </tr>
                              ))}
@@ -374,7 +515,7 @@ const Admin: React.FC = () => {
                     ) : (
                        <div className="h-full flex flex-col items-center justify-center text-center opacity-30">
                           <FileSpreadsheet size={40} className="mb-4" />
-                          <p className="uppercase font-black text-[9px] tracking-widest">Nenhum dado selecionado</p>
+                          <p className="uppercase font-black text-[9px] tracking-widest">Aguardando arquivo...</p>
                        </div>
                     )}
                  </div>
