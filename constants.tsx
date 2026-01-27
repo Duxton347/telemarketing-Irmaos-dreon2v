@@ -16,6 +16,16 @@ export const COLORS = {
   }
 };
 
+// Motivos de Pulo (Skip Reasons) Padronizados
+export const SKIP_REASONS = [
+  'NÃO ATENDE',
+  'CAIXA POSTAL',
+  'NÚMERO ERRADO / INEXISTENTE',
+  'CLIENTE OCUPADO / RETORNAR DEPOIS',
+  'FORA DE ÁREA',
+  'RECUSOU ATENDIMENTO'
+];
+
 // Pesos para o cálculo do IDE (Total 1.0)
 export const STAGE_CONFIG = {
   atendimento: { label: 'Compra/Atendimento', weight: 0.20, color: COLORS.stages.atendimento },
@@ -56,7 +66,7 @@ export const DEFAULT_QUESTIONS = [
   { id: 'pv4', text: 'Equipamento atendeu expectativas', options: ['Atendeu', 'Parcial', 'Não atendeu'], type: CallType.POS_VENDA, order: 4, stageId: 'produto' },
   { id: 'pv5', text: 'Dificuldade de uso/manutenção', options: ['Não', 'Leve', 'Sim, teve dificuldades'], type: CallType.POS_VENDA, order: 5, stageId: 'suporte' },
   { id: 'pv6', text: 'Recomendaria a empresa', options: ['Sim', 'Talvez', 'Não'], type: CallType.POS_VENDA, order: 6, stageId: 'marca' },
-  { id: 'pv7', text: 'Principal ponto de insatisfação do cliente', options: ['NEGOCIAÇÃO', 'GARANTIA', 'ATRASO NA EXECUÇÃO', 'ATRASO NA ENTREGA', 'DEFEITO NO EQUIPAMENTO', 'DEFEITO NA INSTALAÇÃO', 'VENDA INCOMPLETA', 'ATENDIMENTO'], type: CallType.POS_VENDA, order: 7 },
+  { id: 'pv7', text: 'Principal ponto de insatisfação do cliente', options: ['NEGOCIAÇÃO', 'GARANTIA', 'ATRASO NA EXECUÇÃO', 'ATRASO NA ENTREGA', 'DEFEITO NO EQUIPAMENTO', 'DEFEITO NA INSTALAÇÃO', 'VENDA INCOMPLETE', 'ATENDIMENTO'], type: CallType.POS_VENDA, order: 7 },
   { id: 'pv8', text: 'O cliente pode ser explorado para comprar algo?', options: ['NÃO, CLIENTE PERDIDO', 'QUIMICOS', 'FOTOVOLTAICO', 'LINHA BANHO', 'LINHA PISCINA', 'AQUECEDORES', 'OUTROS'], type: CallType.POS_VENDA, order: 8 },
   
   // PROSPECCAO
