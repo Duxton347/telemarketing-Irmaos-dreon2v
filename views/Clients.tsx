@@ -1,34 +1,24 @@
 
 import React from 'react';
 import { 
-  Search, 
-  UserPlus, 
-  ChevronRight, 
-  Phone, 
-  History,
-  Users,
-  Calendar,
-  X,
-  MapPin,
-  Tag,
-  Save,
-  Copy,
-  MessageSquare
+  Search, UserPlus, ChevronRight, Phone, History, Users, Calendar, X,
+  MapPin, Tag, Save, Copy, MessageSquare, Edit2, Loader2, Database
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { SATISFACTION_EMOJIS } from '../constants';
-import { Client, CallRecord } from '../types';
+import { Client, CallRecord, UserRole } from '../types';
 
-const Clients: React.FC = () => {
+const Clients: React.FC<{ user: any }> = ({ user }) => {
   const [clients, setClients] = React.useState<Client[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
   const [search, setSearch] = React.useState('');
   const [selectedClient, setSelectedClient] = React.useState<Client | null>(null);
-  const [clientHistory, setClientHistory] = React.useState<CallRecord[]>([]);
-  const [copied, setCopied] = React.useState(false);
-  
-  // States Modal
+  const [isProcessing, setIsProcessing] = React.useState(false);
   const [isModalOpen, setIsModalOpen] = React.useState(false);
-  const [newClient, setNewClient] = React.useState({
+  const [editMode, setEditMode] = React.useState(false);
+  
+  const [clientData, setClientData] = React.useState({
+    id: '',
     name: '',
     phone: '',
     address: '',
@@ -36,299 +26,185 @@ const Clients: React.FC = () => {
   });
 
   const loadClients = async () => {
-    const allClients = await dataService.getClients();
-    setClients(allClients);
+    setIsLoading(true);
+    try {
+      const allClients = await dataService.getClients();
+      setClients(allClients || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  React.useEffect(() => {
-    loadClients();
-  }, []);
-
-  // Correctly await asynchronous calls in history effect
-  React.useEffect(() => {
-    const loadHistory = async () => {
-      if (selectedClient) {
-        const allCalls = await dataService.getCalls();
-        const filtered = allCalls.filter(c => c.clientId === selectedClient.id);
-        setClientHistory(filtered.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()));
-      }
-    };
-    loadHistory();
-  }, [selectedClient]);
+  React.useEffect(() => { loadClients(); }, []);
 
   const handleSaveClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newClient.name || !newClient.phone) return;
+    if (!clientData.name || !clientData.phone) return;
 
-    await dataService.upsertClient({
-      name: newClient.name,
-      phone: newClient.phone,
-      address: newClient.address,
-      items: newClient.items.split(',').map(i => i.trim()).filter(i => i),
-      acceptance: 'medium',
-      satisfaction: 'medium'
+    setIsProcessing(true);
+    try {
+      await dataService.upsertClient({
+        id: clientData.id || undefined,
+        name: clientData.name,
+        phone: clientData.phone,
+        address: clientData.address,
+        items: clientData.items.split(',').map(i => i.trim()).filter(i => i),
+      });
+
+      setIsModalOpen(false);
+      setEditMode(false);
+      setClientData({ id: '', name: '', phone: '', address: '', items: '' });
+      await loadClients();
+    } catch (e) { alert("Erro ao salvar cliente."); }
+    finally { setIsProcessing(false); }
+  };
+
+  const startEdit = (c: Client) => {
+    setClientData({
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      address: c.address,
+      items: (c.items || []).join(', ')
     });
-
-    setIsModalOpen(false);
-    setNewClient({ name: '', phone: '', address: '', items: '' });
-    await loadClients();
-    alert('Cliente cadastrado com sucesso!');
+    setEditMode(true);
+    setIsModalOpen(true);
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const openWhatsApp = (phone: string) => {
-    const cleanPhone = phone.replace(/\D/g, '');
-    window.open(`https://wa.me/${cleanPhone}`, '_blank');
-  };
-
-  const filteredClients = clients.filter(c => 
-    c.name.toLowerCase().includes(search.toLowerCase()) || 
-    c.phone.includes(search)
+  const filtered = (clients || []).filter(c => 
+    (c.name || '').toLowerCase().includes(search.toLowerCase()) || 
+    (c.phone || '').includes(search)
   );
 
+  const isAdmin = user.role === UserRole.ADMIN || user.role === UserRole.SUPERVISOR;
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-6 pb-20 animate-in fade-in duration-500">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Base de Clientes</h2>
-          <p className="text-slate-500">Cadastro centralizado e histórico de interações.</p>
+          <h2 className="text-3xl font-black text-slate-800 tracking-tighter">Base de Clientes</h2>
+          <p className="text-slate-500 text-sm font-medium">Gestão centralizada da base instalada Irmãos Dreon.</p>
         </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20"
-        >
-          <UserPlus size={20} />
-          Novo Cliente
+        <button onClick={() => { setEditMode(false); setClientData({id:'', name:'', phone:'', address:'', items:''}); setIsModalOpen(true); }} className="flex items-center gap-2 bg-blue-600 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl hover:bg-blue-700 transition-all">
+          <UserPlus size={18} /> Novo Cliente
         </button>
-      </div>
+      </header>
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 relative">
-        <Search className="absolute left-7 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-        <input 
+      <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center gap-4">
+         <Search className="text-slate-400 shrink-0" size={20} />
+         <input 
           type="text" 
+          placeholder="Pesquisar por nome ou telefone..." 
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por nome ou telefone..."
-          className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 outline-none transition-all font-medium"
-        />
+          onChange={e => setSearch(e.target.value)}
+          className="flex-1 bg-transparent border-none outline-none font-bold text-slate-700 placeholder:text-slate-300"
+         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-1 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden h-[600px] flex flex-col">
-          <div className="p-4 border-b border-slate-50 font-black text-[10px] text-slate-400 uppercase tracking-widest bg-slate-50">
-            Lista de Clientes ({filteredClients.length})
-          </div>
-          <div className="overflow-y-auto flex-1 custom-scrollbar">
-            {filteredClients.length > 0 ? (
-              filteredClients.map((client) => (
-                <button
-                  key={client.id}
-                  onClick={() => setSelectedClient(client)}
-                  className={`w-full text-left p-4 border-b border-slate-50 flex items-center justify-between hover:bg-slate-50 transition-colors ${selectedClient?.id === client.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : ''}`}
-                >
-                  <div className="flex-1 min-w-0 pr-4">
-                    <h4 className="font-bold text-slate-900 truncate">{client.name}</h4>
-                    <p className="text-xs text-slate-500">{client.phone}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl">{SATISFACTION_EMOJIS[client.satisfaction]}</span>
-                    <ChevronRight size={16} className="text-slate-300" />
-                  </div>
-                </button>
-              ))
-            ) : (
-              <div className="p-8 text-center text-slate-400 text-sm italic">Nenhum cliente encontrado.</div>
-            )}
-          </div>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="lg:col-span-5 space-y-4">
+           {isLoading ? (
+             <div className="h-64 flex flex-col items-center justify-center gap-4 text-slate-300">
+                <Loader2 className="animate-spin" size={32} />
+                <p className="text-[10px] font-black uppercase tracking-widest">Sincronizando Base...</p>
+             </div>
+           ) : filtered.length === 0 ? (
+             <div className="p-20 text-center text-slate-300 font-black uppercase tracking-widest text-[10px]">Nenhum cliente encontrado</div>
+           ) : (
+             <div className="max-h-[70vh] overflow-y-auto no-scrollbar space-y-3">
+                {filtered.map(c => (
+                  <button 
+                    key={c.id} 
+                    onClick={() => setSelectedClient(c)}
+                    className={`w-full p-6 bg-white border rounded-[32px] flex items-center justify-between group transition-all ${selectedClient?.id === c.id ? 'border-blue-600 shadow-lg shadow-blue-500/10' : 'border-slate-50 hover:border-slate-200 shadow-sm'}`}
+                  >
+                     <div className="text-left">
+                        <h4 className="font-black text-slate-800">{c.name}</h4>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{c.phone}</span>
+                     </div>
+                     <ChevronRight size={18} className={`transition-transform ${selectedClient?.id === c.id ? 'text-blue-600 translate-x-1' : 'text-slate-200'}`} />
+                  </button>
+                ))}
+             </div>
+           )}
         </div>
 
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden min-h-[600px] flex flex-col">
-          {selectedClient ? (
-            <div className="p-8 space-y-8 animate-in fade-in slide-in-from-right-4 duration-300 flex-1 overflow-y-auto custom-scrollbar">
-              <div className="flex justify-between items-start border-b border-slate-50 pb-6">
-                <div>
-                  <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-1">{selectedClient.name}</h3>
-                  <div className="flex flex-wrap items-center gap-4">
-                    <div className="flex items-center gap-2 text-slate-500 text-sm font-bold">
-                      <div className="flex items-center gap-1.5">
-                        <Phone size={14} className="text-blue-500" /> {selectedClient.phone}
+        <div className="lg:col-span-7">
+           {selectedClient ? (
+             <div className="bg-white rounded-[56px] shadow-sm border border-slate-100 overflow-hidden animate-in slide-in-from-right-4 duration-300">
+                <div className="p-10 border-b border-slate-50 flex justify-between items-start bg-slate-50/30">
+                   <div className="space-y-4">
+                      <h3 className="text-4xl font-black text-slate-900 tracking-tighter leading-tight">{selectedClient.name}</h3>
+                      <div className="flex flex-wrap items-center gap-6">
+                         <span className="flex items-center gap-2 text-sm font-black text-blue-600"><Phone size={16} /> {selectedClient.phone}</span>
+                         <span className="flex items-start gap-2 text-xs font-bold text-slate-400 uppercase tracking-widest max-w-xs"><MapPin size={16} className="shrink-0 text-red-500" /> {selectedClient.address || 'Sem endereço cadastrado'}</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <button 
-                          onClick={() => copyToClipboard(selectedClient.phone)}
-                          title="Copiar número"
-                          className={`p-1.5 rounded-lg transition-all ${copied ? 'bg-green-100 text-green-600' : 'bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600'}`}
-                        >
-                          <Copy size={12} />
-                        </button>
-                        <button 
-                          onClick={() => openWhatsApp(selectedClient.phone)}
-                          title="Abrir no WhatsApp"
-                          className="p-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-600 hover:text-white transition-all"
-                        >
-                          <MessageSquare size={12} />
-                        </button>
+                   </div>
+                   <div className="flex flex-col items-center gap-2">
+                      <div className="text-6xl">{SATISFACTION_EMOJIS[selectedClient.satisfaction] || '😐'}</div>
+                      {isAdmin && (
+                        <button onClick={() => startEdit(selectedClient)} className="mt-4 px-6 py-2 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all">Editar Ficha</button>
+                      )}
+                   </div>
+                </div>
+                
+                <div className="p-10 space-y-10">
+                   <section className="space-y-4">
+                      <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Tag size={14} className="text-indigo-500" /> Portfólio Dreon</h5>
+                      <div className="flex flex-wrap gap-2">
+                         {selectedClient.items && selectedClient.items.length > 0 ? selectedClient.items.map((item, i) => (
+                           <span key={i} className="px-4 py-2 bg-slate-50 text-slate-600 rounded-xl text-[10px] font-black uppercase border border-slate-100">{item}</span>
+                         )) : (
+                           <span className="text-xs font-bold text-slate-300 italic">Nenhum equipamento vinculado</span>
+                         )}
                       </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-slate-500 text-sm font-bold">
-                      <MapPin size={14} className="text-red-500" /> {selectedClient.address || 'Sem endereço'}
-                    </div>
-                  </div>
+                   </section>
                 </div>
-                <span className="text-4xl filter drop-shadow-md">{SATISFACTION_EMOJIS[selectedClient.satisfaction]}</span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Portfólio do Cliente</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedClient.items.length > 0 ? selectedClient.items.map(item => (
-                      <span key={item} className="px-3 py-1 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold shadow-sm">
-                        {item}
-                      </span>
-                    )) : <span className="text-xs text-slate-400 italic">Nenhum item vinculado</span>}
-                  </div>
-                </div>
-                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Status de Atendimento</h4>
-                  <div className="flex items-center gap-3">
-                    <span className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-sm ${
-                      selectedClient.acceptance === 'high' ? 'bg-green-600 text-white' :
-                      selectedClient.acceptance === 'medium' ? 'bg-yellow-500 text-white' : 'bg-red-600 text-white'
-                    }`}>
-                      Aceitação {selectedClient.acceptance === 'high' ? 'Alta' : selectedClient.acceptance === 'medium' ? 'Média' : 'Baixa'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-                  <History size={20} className="text-blue-600" />
-                  Linha do Tempo de Interações
-                </h4>
-                <div className="space-y-4">
-                  {clientHistory.length > 0 ? (
-                    clientHistory.map((h, i) => (
-                      <div key={i} className="flex items-center justify-between p-5 bg-white border border-slate-100 rounded-2xl hover:shadow-md transition-all">
-                        <div className="flex items-center gap-4">
-                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold ${
-                            h.type === 'VENDA' ? 'bg-blue-600' : h.type === 'PÓS-VENDA' ? 'bg-green-500' : 'bg-yellow-500'
-                          }`}>
-                            {h.type.charAt(0)}
-                          </div>
-                          <div>
-                            <p className="font-bold text-slate-800">{h.type}</p>
-                            <p className="text-xs text-slate-400 font-medium">
-                              {new Date(h.startTime).toLocaleDateString('pt-BR')} às {new Date(h.startTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className="block text-sm font-black text-slate-700">{Math.floor(h.duration / 60)}m {h.duration % 60}s</span>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase">Tempo em linha</p>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="p-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                      <History size={40} className="mx-auto text-slate-200 mb-4" />
-                      <p className="text-slate-400 text-sm font-medium">Sem interações registradas.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center flex-1 text-slate-300 space-y-4">
-              <Users size={80} strokeWidth={1} />
-              <p className="font-bold uppercase tracking-widest text-xs">Selecione um cliente para detalhamento</p>
-            </div>
-          )}
+             </div>
+           ) : (
+             <div className="h-full bg-slate-50 border-4 border-dashed border-slate-100 rounded-[56px] flex flex-col items-center justify-center p-20 text-center gap-6 opacity-40">
+                <Users size={64} className="text-slate-300" />
+                <p className="text-sm font-black uppercase text-slate-400 tracking-widest">Selecione um cliente para ver os detalhes</p>
+             </div>
+           )}
         </div>
       </div>
 
-      {/* Modal Novo Cliente */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
-            <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                <UserPlus size={24} className="text-blue-400" />
-                Novo Cadastro de Cliente
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-md">
+          <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
+            <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
+              <h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3">
+                {editMode ? <Edit2 size={24} className="text-blue-400" /> : <UserPlus size={24} className="text-blue-400" />}
+                {editMode ? 'Editar Cadastro' : 'Novo Cliente'}
               </h3>
-              <button onClick={() => setIsModalOpen(false)} className="hover:bg-white/10 p-2 rounded-full">
-                <X size={24} />
-              </button>
+              <button onClick={() => setIsModalOpen(false)} className="hover:bg-white/10 p-2 rounded-full transition-all"><X size={24} /></button>
             </div>
             
-            <form onSubmit={handleSaveClient} className="p-8 space-y-5">
+            <form onSubmit={handleSaveClient} className="p-10 space-y-6">
               <div className="space-y-1.5">
-                <label className="text-xs font-black text-slate-400 uppercase ml-1">Nome do Cliente</label>
-                <input 
-                  type="text" 
-                  required
-                  value={newClient.name}
-                  onChange={(e) => setNewClient({...newClient, name: e.target.value})}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 outline-none transition-all font-medium"
-                  placeholder="Nome completo ou Razão Social"
-                />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nome Completo</label>
+                <input type="text" required value={clientData.name} onChange={e => setClientData({...clientData, name: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-blue-500/10 transition-all" />
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-1">Telefone (Whatsapp)</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={newClient.phone}
-                    onChange={(e) => setNewClient({...newClient, phone: e.target.value})}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 outline-none transition-all font-medium"
-                    placeholder="Ex: 11999999999"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-black text-slate-400 uppercase ml-1">Equipamentos (separados por vírgula)</label>
-                  <input 
-                    type="text" 
-                    value={newClient.items}
-                    onChange={(e) => setNewClient({...newClient, items: e.target.value})}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 outline-none transition-all font-medium"
-                    placeholder="Ex: Piscina, Filtro, Capa"
-                  />
-                </div>
+              <div className="grid grid-cols-2 gap-4">
+                 <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Telefone</label>
+                    <input type="text" required value={clientData.phone} onChange={e => setClientData({...clientData, phone: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-blue-500/10 transition-all" />
+                 </div>
+                 <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Itens (separados por vírgula)</label>
+                    <input type="text" value={clientData.items} onChange={e => setClientData({...clientData, items: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-blue-500/10 transition-all" placeholder="Ex: Bomba, Filtro" />
+                 </div>
               </div>
-
               <div className="space-y-1.5">
-                <label className="text-xs font-black text-slate-400 uppercase ml-1">Endereço de Atendimento</label>
-                <textarea 
-                  value={newClient.address}
-                  onChange={(e) => setNewClient({...newClient, address: e.target.value})}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 outline-none transition-all font-medium h-24 resize-none"
-                  placeholder="Rua, Número, Bairro, Cidade..."
-                />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Endereço de Atendimento</label>
+                <textarea value={clientData.address} onChange={e => setClientData({...clientData, address: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold h-24 resize-none outline-none focus:ring-4 focus:ring-blue-500/10 transition-all" />
               </div>
-
-              <div className="pt-4 flex gap-4">
-                <button 
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="flex-1 py-4 bg-slate-100 text-slate-500 font-black rounded-2xl hover:bg-slate-200 transition-all uppercase tracking-widest text-xs"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  type="submit"
-                  className="flex-1 py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-500/20 uppercase tracking-widest text-xs flex items-center justify-center gap-2"
-                >
-                  <Save size={18} /> Cadastrar Cliente
-                </button>
-              </div>
+              <button type="submit" disabled={isProcessing} className="w-full py-6 bg-blue-600 text-white rounded-[32px] font-black uppercase tracking-widest text-[10px] shadow-2xl flex items-center justify-center gap-2 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50">
+                {isProcessing ? <Loader2 className="animate-spin" /> : <Save size={18} />} {editMode ? 'Salvar Alterações' : 'Cadastrar Cliente'}
+              </button>
             </form>
           </div>
         </div>

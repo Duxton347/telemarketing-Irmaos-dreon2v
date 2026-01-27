@@ -31,6 +31,21 @@ export enum ProtocolStatus {
   REABERTO = 'Reaberto'
 }
 
+export enum OperatorEventType {
+  INICIAR_PROXIMO_ATENDIMENTO = 'INICIAR_PROXIMO_ATENDIMENTO',
+  FINALIZAR_ATENDIMENTO = 'FINALIZAR_ATENDIMENTO',
+  PULAR_ATENDIMENTO = 'PULAR_ATENDIMENTO'
+}
+
+export interface OperatorEvent {
+  id: string;
+  operatorId: string;
+  taskId?: string;
+  eventType: OperatorEventType;
+  timestamp: string;
+  note?: string;
+}
+
 export interface Client {
   id: string;
   name: string;

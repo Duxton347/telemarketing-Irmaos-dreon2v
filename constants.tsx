@@ -56,7 +56,8 @@ export const DEFAULT_QUESTIONS = [
   { id: 'pv4', text: 'Equipamento atendeu expectativas', options: ['Atendeu', 'Parcial', 'Não atendeu'], type: CallType.POS_VENDA, order: 4, stageId: 'produto' },
   { id: 'pv5', text: 'Dificuldade de uso/manutenção', options: ['Não', 'Leve', 'Sim, teve dificuldades'], type: CallType.POS_VENDA, order: 5, stageId: 'suporte' },
   { id: 'pv6', text: 'Recomendaria a empresa', options: ['Sim', 'Talvez', 'Não'], type: CallType.POS_VENDA, order: 6, stageId: 'marca' },
-  { id: 'pv7', text: 'Principal ponto de incômodo', options: ['Negociação', 'Garantia', 'Atraso na execução', 'Atraso na entrega', 'Defeito no equipamento', 'Defeito na instalação', 'Venda incompleta', 'Atendimento'], type: CallType.POS_VENDA, order: 7 },
+  { id: 'pv7', text: 'Principal ponto de insatisfação do cliente', options: ['NEGOCIAÇÃO', 'GARANTIA', 'ATRASO NA EXECUÇÃO', 'ATRASO NA ENTREGA', 'DEFEITO NO EQUIPAMENTO', 'DEFEITO NA INSTALAÇÃO', 'VENDA INCOMPLETA', 'ATENDIMENTO'], type: CallType.POS_VENDA, order: 7 },
+  { id: 'pv8', text: 'O cliente pode ser explorado para comprar algo?', options: ['NÃO, CLIENTE PERDIDO', 'QUIMICOS', 'FOTOVOLTAICO', 'LINHA BANHO', 'LINHA PISCINA', 'AQUECEDORES', 'OUTROS'], type: CallType.POS_VENDA, order: 8 },
   
   // PROSPECCAO
   { id: 'pr1', text: 'Receptividade na abordagem', options: ['Boa', 'Neutra', 'Ruim'], type: CallType.PROSPECCAO, order: 1 },

@@ -7,7 +7,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Tooltip as PieTooltip
 } from 'recharts';
 import { dataService } from '../services/dataService';
-import { UserRole, CallType, ProtocolStatus, User, Protocol, Client } from '../types';
+import { UserRole, CallType, ProtocolStatus, User, Protocol, Client, Question } from '../types';
 import { useNavigate } from 'react-router-dom';
 
 interface DashboardProps {
@@ -17,6 +17,7 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const navigate = useNavigate();
   const [operators, setOperators] = React.useState<User[]>([]);
+  const [questions, setQuestions] = React.useState<Question[]>([]);
   const [selectedFilter, setSelectedFilter] = React.useState<string>(user?.role === UserRole.OPERATOR ? user.id : 'all');
   
   // Modal States
@@ -36,21 +37,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const [protocolData, setProtocolData] = React.useState<any[]>([]);
 
   const fetchBaseData = React.useCallback(async () => {
-    const [calls, protocols, tasks, allUsers] = await Promise.all([
+    const [calls, protocols, tasks, allUsers, allQuestions] = await Promise.all([
       dataService.getCalls(),
       dataService.getProtocols(),
       dataService.getTasks(),
-      dataService.getUsers()
+      dataService.getUsers(),
+      dataService.getQuestions()
     ]);
 
     setOperators(allUsers.filter(u => u && u.role === UserRole.OPERATOR));
+    setQuestions(allQuestions);
     const filterId = user?.role === UserRole.OPERATOR ? user.id : selectedFilter;
     
     const todayStr = new Date().toISOString().split('T')[0];
     
-    // Filtro rigoroso: Apenas ligações registradas hoje
     const displayCalls = (filterId === 'all' ? calls : calls.filter(c => c.operatorId === filterId))
-      .filter(c => c.start_time && c.start_time.startsWith(todayStr));
+      .filter(c => c.startTime && c.startTime.startsWith(todayStr));
 
     const displayTasks = filterId === 'all' 
       ? tasks.filter(t => t.status === 'pending')
@@ -76,12 +78,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
     setChartData(last7Days.map(day => {
       const dayCalls = (filterId === 'all' ? calls : calls.filter(c => c.operatorId === filterId))
-        .filter(c => new Date(c.start_time).toLocaleDateString('pt-BR', { weekday: 'short' }) === day);
+        .filter(c => new Date(c.startTime).toLocaleDateString('pt-BR', { weekday: 'short' }) === day);
       return { 
         name: day, 
-        venda: dayCalls.filter(c => c.call_type === CallType.VENDA).length,
-        posVenda: dayCalls.filter(c => c.call_type === CallType.POS_VENDA).length,
-        prospeccao: dayCalls.filter(c => c.call_type === CallType.PROSPECCAO).length,
+        venda: dayCalls.filter(c => c.type === CallType.VENDA).length,
+        posVenda: dayCalls.filter(c => c.type === CallType.POS_VENDA).length,
+        prospeccao: dayCalls.filter(c => c.type === CallType.PROSPECCAO).length,
       };
     }));
 
@@ -168,8 +170,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10, fontBold: 900}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10, fontBold: 900}} />
+                {/* Changed fontBold to fontWeight to resolve Recharts typing error */}
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10, fontWeight: 900}} />
+                {/* Changed fontBold to fontWeight to resolve Recharts typing error */}
+                <YAxis axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10, fontWeight: 900}} />
                 <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '24px', border: 'none', boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.25)'}} />
                 <Bar dataKey="posVenda" stackId="a" fill="#10b981" radius={[2, 2, 0, 0]} />
                 <Bar dataKey="venda" stackId="a" fill="#2563eb" radius={[2, 2, 0, 0]} />
@@ -325,7 +329,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                     </h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                        {Object.entries(selectedAuditCall.responses || {}).filter(([k]) => k !== 'written_report' && k !== 'call_type').map(([qId, response]: any) => {
-                          const questionText = dataService.getQuestions().find(q => q.id === qId)?.text || qId;
+                          const questionText = questions.find(q => q.id === qId)?.text || qId;
                           return (
                              <div key={qId} className="p-6 bg-white border border-slate-100 rounded-[28px] shadow-sm flex flex-col justify-between">
                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-2">{questionText}</p>

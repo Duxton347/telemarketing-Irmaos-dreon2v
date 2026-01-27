@@ -39,7 +39,7 @@ const App: React.FC = () => {
           <Route path="/queue" element={
             user.role !== UserRole.ADMIN ? <Queue user={user} /> : <Navigate to="/" />
           } />
-          <Route path="/clients" element={<Clients />} />
+          <Route path="/clients" element={<Clients user={user} />} />
           <Route path="/protocols" element={<Protocols user={user} />} />
           <Route path="/admin" element={
             user.role === UserRole.ADMIN ? <Admin /> : <Navigate to="/" />
