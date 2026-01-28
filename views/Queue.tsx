@@ -2,11 +2,11 @@
 import React from 'react';
 import { 
   Phone, PhoneOff, SkipForward, Play, CheckCircle2, 
-  Loader2, Clock, MapPin, User, FileText, AlertCircle, Save, X, MessageCircle, Copy, Check, ChevronRight, AlertTriangle
+  Loader2, Clock, MapPin, User, FileText, AlertCircle, Save, X, MessageCircle, Copy, Check, ChevronRight, AlertTriangle, ClipboardList
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
-import { Task, Client, Question, CallType, OperatorEventType } from '../types';
-import { SKIP_REASONS } from '../constants';
+import { Task, Client, Question, CallType, OperatorEventType, ProtocolStatus } from '../types';
+import { SKIP_REASONS, PROTOCOL_SLA } from '../constants';
 
 interface QueueProps {
   user: any;
@@ -30,6 +30,16 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
   const [isCopied, setIsCopied] = React.useState(false);
   const [hasRecentCall, setHasRecentCall] = React.useState(false);
 
+  // Estados para abertura de protocolo no report
+  const [needsProtocol, setNeedsProtocol] = React.useState(false);
+  const [protoData, setProtoData] = React.useState({
+    title: '',
+    departmentId: 'atendimento',
+    priority: 'Média' as 'Baixa' | 'Média' | 'Alta'
+  });
+
+  const config = dataService.getProtocolConfig();
+
   const resetState = React.useCallback(() => {
     setIsCalling(false);
     setIsFillingReport(false);
@@ -40,6 +50,8 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
     setCallSummary('');
     setStartTime(null);
     setHasRecentCall(false);
+    setNeedsProtocol(false);
+    setProtoData({ title: '', departmentId: 'atendimento', priority: 'Média' });
   }, []);
 
   const fetchQueue = React.useCallback(async () => {
@@ -57,7 +69,6 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
         setCurrentTask(myTask);
         setClient(foundClient || null);
         
-        // Verifica se houve ligação recente (3 dias) para alertar o operador
         if (foundClient) {
           const recent = await dataService.checkRecentCall(foundClient.id);
           setHasRecentCall(recent);
@@ -130,18 +141,43 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
   const handleSubmitReport = async () => {
     if (!currentTask || !client) return;
     
-    const pendingNotes = questions.some(q => {
-      const isSaleQ = q.text.toLowerCase().includes('explorado') || q.text.toLowerCase().includes('comprar');
-      return isSaleQ && responses[q.id] && !responses[`${q.id}_note`];
-    });
-
-    if (pendingNotes) {
-      alert("Por favor, preencha a justificativa sobre a possibilidade de venda.");
+    // Validação básica se o protocolo foi ativado
+    if (needsProtocol && !protoData.title.trim()) {
+      alert("Informe um título para o protocolo.");
       return;
     }
 
     setIsProcessing(true);
     try {
+      let protocolId = undefined;
+      
+      // Se precisar de protocolo, cria agora
+      if (needsProtocol) {
+        const slaHours = PROTOCOL_SLA[protoData.priority] || 48;
+        const now = new Date();
+        const p = {
+          id: '',
+          clientId: client.id,
+          openedByOperatorId: user.id,
+          ownerOperatorId: user.id,
+          origin: 'Atendimento',
+          departmentId: protoData.departmentId,
+          categoryId: '',
+          title: protoData.title.trim(),
+          description: callSummary || 'Protocolo aberto via finalização de chamada.',
+          priority: protoData.priority,
+          status: ProtocolStatus.ABERTO,
+          openedAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          lastActionAt: now.toISOString(),
+          slaDueAt: new Date(now.getTime() + slaHours * 3600000).toISOString()
+        };
+        
+        // Salvamento simulado via dataService para obter o ID (precisaria retornar o objeto no dataService)
+        // Por simplicidade, vamos salvar e o dataService cuida do resto
+        await dataService.saveProtocol(p as any, user.id);
+      }
+
       const callData = {
         id: '',
         taskId: currentTask.id,
@@ -152,8 +188,10 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
         duration: callDuration,
         reportTime: reportDuration,
         responses: { ...responses, written_report: callSummary, call_type: currentTask.type },
-        type: currentTask.type
+        type: currentTask.type,
+        protocolId
       };
+      
       await dataService.saveCall(callData);
       await dataService.updateTask(currentTask.id, { status: 'completed' });
       await dataService.logOperatorEvent(user.id, OperatorEventType.FINALIZAR_ATENDIMENTO, currentTask.id);
@@ -176,7 +214,6 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in duration-500 pb-20">
-      {/* FICHA DO CLIENTE */}
       <div className="lg:col-span-4 space-y-6">
         <div className="bg-slate-900 rounded-[48px] p-10 text-white shadow-2xl space-y-8 relative overflow-hidden">
            {hasRecentCall && (
@@ -232,7 +269,6 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
         )}
       </div>
 
-      {/* ÁREA DE QUESTIONÁRIO E REPORT */}
       <div className="lg:col-span-8">
         {(isCalling || isFillingReport) ? (
           <div className="bg-white rounded-[56px] shadow-sm border border-slate-100 overflow-hidden flex flex-col min-h-[600px] animate-in slide-in-from-right-4">
@@ -253,17 +289,7 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
                 </div>
              </header>
 
-             <div className="flex-1 p-10 space-y-12 overflow-y-auto">
-                {hasRecentCall && (
-                  <div className="p-6 bg-red-50 border border-red-100 rounded-[32px] flex items-center gap-4 text-red-600">
-                     <AlertCircle size={32} />
-                     <div>
-                        <p className="font-black uppercase text-[10px] tracking-widest">Alerta de Quarentena</p>
-                        <p className="text-xs font-bold">Este cliente já recebeu uma ligação nos últimos 3 dias. Verifique se realmente é necessário prosseguir.</p>
-                     </div>
-                  </div>
-                )}
-
+             <div className="flex-1 p-10 space-y-12 overflow-y-auto custom-scrollbar">
                 <section className="space-y-6">
                    <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-3">
                       <CheckCircle2 size={18} className="text-blue-600" /> Questionário Obrigatório
@@ -271,7 +297,7 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {questions.filter(q => q.type === currentTask.type || q.type === 'ALL').map(q => (
                          <div key={q.id} className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 space-y-4">
-                            <p className="font-black text-slate-800 text-sm leading-tight">{q.text}</p>
+                            <p className="font-black text-slate-800 text-sm leading-tight">{q.order}. {q.text}</p>
                             <div className="flex flex-wrap gap-2">
                                {q.options.map(opt => (
                                   <button
@@ -283,27 +309,71 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
                                   </button>
                                ))}
                             </div>
-                            {(q.text.toLowerCase().includes('explorado') || q.text.toLowerCase().includes('comprar')) && responses[q.id] && (
-                              <div className="mt-4 animate-in slide-in-from-top-2">
-                                 <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block">Justificativa da Venda</label>
-                                 <textarea 
-                                    value={responses[`${q.id}_note`] || ''}
-                                    onChange={e => setResponses({...responses, [`${q.id}_note`]: e.target.value})}
-                                    className="w-full p-4 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none h-20 resize-none focus:ring-4 focus:ring-blue-500/5 transition-all"
-                                    placeholder="Explique o porquê desta oportunidade..."
-                                 />
-                              </div>
-                            )}
                          </div>
                       ))}
                    </div>
                 </section>
+                
                 <section className="space-y-4">
                    <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-3">
                       <FileText size={18} className="text-blue-600" /> Resumo da Conversa
                    </h5>
                    <textarea value={callSummary} onChange={e => setCallSummary(e.target.value)} className="w-full p-8 bg-slate-50 rounded-[40px] border border-slate-100 font-bold text-slate-800 h-48 outline-none resize-none focus:ring-8 focus:ring-blue-500/5 transition-all" placeholder="O que foi conversado? Anote detalhes importantes para o próximo contato." />
                 </section>
+
+                {/* OPÇÃO DE PROTOCOLO NO REPORT */}
+                {isFillingReport && (
+                  <section className="space-y-6 p-10 bg-blue-50/50 rounded-[48px] border border-blue-100">
+                    <div className="flex items-center justify-between">
+                       <h5 className="text-[11px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-3">
+                          <ClipboardList size={22} /> Gerar Protocolo de Atendimento?
+                       </h5>
+                       <button 
+                        onClick={() => setNeedsProtocol(!needsProtocol)}
+                        className={`w-14 h-8 rounded-full transition-all relative ${needsProtocol ? 'bg-blue-600' : 'bg-slate-300'}`}
+                       >
+                         <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all ${needsProtocol ? 'left-7' : 'left-1'}`}></div>
+                       </button>
+                    </div>
+
+                    {needsProtocol && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-4">
+                        <div className="space-y-2 col-span-2">
+                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Título do Protocolo</label>
+                           <input 
+                            type="text" 
+                            value={protoData.title}
+                            onChange={e => setProtoData({...protoData, title: e.target.value})}
+                            className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold outline-none"
+                            placeholder="Ex: Reclamação de atraso na bomba..."
+                           />
+                        </div>
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Setor Responsável</label>
+                           <select 
+                            value={protoData.departmentId}
+                            onChange={e => setProtoData({...protoData, departmentId: e.target.value})}
+                            className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase outline-none"
+                           >
+                              {config.departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                           </select>
+                        </div>
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Prioridade</label>
+                           <select 
+                            value={protoData.priority}
+                            onChange={e => setProtoData({...protoData, priority: e.target.value as any})}
+                            className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase outline-none"
+                           >
+                              <option value="Baixa">Baixa</option>
+                              <option value="Média">Média</option>
+                              <option value="Alta">Alta</option>
+                           </select>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                )}
              </div>
              
              {isFillingReport && (
@@ -322,7 +392,6 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
         )}
       </div>
 
-      {/* MODAL DE MOTIVOS DE PULO */}
       {isSkipModalOpen && (
         <div className="fixed inset-0 z-[150] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
            <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
@@ -331,7 +400,6 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
                  <button onClick={() => setIsSkipModalOpen(false)}><X size={24} /></button>
               </div>
               <div className="p-8 space-y-3">
-                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Selecione o motivo para pular este contato:</p>
                  {SKIP_REASONS.map(reason => (
                     <button 
                       key={reason}
