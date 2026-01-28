@@ -1,11 +1,11 @@
-
+// Added missing React import
 import React from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   Cell, LineChart, Line, Legend, AreaChart, Area
 } from 'recharts';
 import { 
-  X, Loader2, AlertCircle, TrendingUp, Target, Heart, Filter, PhoneOff, Zap, BarChart3, CheckCircle2, ClipboardList, Timer, Phone, Eye, Trophy, Clock, SkipForward, ArrowUpRight, Activity
+  X, Loader2, AlertCircle, TrendingUp, Target, Heart, Filter, PhoneOff, Zap, BarChart3, CheckCircle2, ClipboardList, Timer, Phone, Eye, Trophy, Clock, SkipForward, ArrowUpRight, Activity, FileText, MapPin
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { CallRecord, User, Client, Protocol, Question, ProtocolStatus, Task, OperatorEvent, OperatorEventType } from '../types';
@@ -28,6 +28,7 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
   const [detailedStats, setDetailedStats] = React.useState<any>(null);
   const [consolidatedIDE, setConsolidatedIDE] = React.useState(0);
 
+  const [selectedAuditCall, setSelectedAuditCall] = React.useState<any>(null);
   const [drillDownData, setDrillDownData] = React.useState<{
     isOpen: boolean;
     title: string;
@@ -83,7 +84,6 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
 
   React.useEffect(() => { load(); }, [load]);
 
-  // CÁLCULO DO RANKING E INDICADORES DE OPERADOR (MÉTRICAS DE GAP E TMA)
   const operatorMetrics = React.useMemo(() => {
     if (!operators.length) return { ranking: [], tmaTimeline: [] };
 
@@ -99,11 +99,9 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
       const opSkips = tasks.filter(t => t.assignedTo === op.id && t.status === 'skipped').length;
       const totalAttempts = opCompleted + opSkips;
 
-      // Calcular TMA (Tempo Médio de Atendimento)
       const totalCallDur = opCalls.reduce((acc, c) => acc + (c.duration || 0), 0);
       const avgTma = opCompleted > 0 ? totalCallDur / opCompleted : 0;
 
-      // Timeline de TMA para o Gráfico de Curva
       opCalls.forEach(c => {
         const day = c.startTime.split('T')[0];
         if (!tmaByDay[day]) tmaByDay[day] = { date: day, totalDur: 0, count: 0 };
@@ -111,11 +109,8 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
         tmaByDay[day].count += 1;
       });
 
-      // Calcular GAPs (Tempo entre FINALIZAR_ATENDIMENTO e próximo INICIAR ou PULAR)
       const gaps: number[] = [];
       let lastFinalizeTimestamp: number | null = null;
-
-      // Ordenamos os eventos por tempo para garantir o cálculo correto do GAP
       const sortedEvents = [...opEvents].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
       sortedEvents.forEach(evt => {
@@ -123,19 +118,14 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
           lastFinalizeTimestamp = new Date(evt.timestamp).getTime();
         } else if (lastFinalizeTimestamp && (evt.eventType === OperatorEventType.INICIAR_PROXIMO_ATENDIMENTO || evt.eventType === OperatorEventType.PULAR_ATENDIMENTO)) {
           const gapMs = new Date(evt.timestamp).getTime() - lastFinalizeTimestamp;
-          // Consideramos GAPs de até 2 horas como válidos (acima disso pode ser almoço/fim de turno)
           if (gapMs > 0 && gapMs < 7200000) { 
-            gaps.push(gapMs / 1000); // Em segundos
+            gaps.push(gapMs / 1000);
           }
           lastFinalizeTimestamp = null;
         }
       });
 
       const avgGap = gaps.length > 0 ? gaps.reduce((a, b) => a + b, 0) / gaps.length : 0;
-      const maxGap = gaps.length > 0 ? Math.max(...gaps) : 0;
-      
-      // Regra de Ranking: (Concluídos * 10) - (AvgGapMinutos * 5) - (TMA_Excedente_Penalidade)
-      // Penaliza quem demora a iniciar a próxima ligação
       const score = (opCompleted * 10) - ((avgGap / 60) * 5);
 
       opData[op.id] = {
@@ -146,7 +136,7 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
         tma: Math.round(avgTma),
         skipPercentage: totalAttempts > 0 ? Math.round((opSkips / totalAttempts) * 100) : 0,
         avgGap: Math.round(avgGap),
-        maxGap: Math.round(maxGap),
+        maxGap: gaps.length > 0 ? Math.max(...gaps) : 0,
         score: Math.max(0, Math.round(score * 10) / 10)
       };
     });
@@ -278,7 +268,6 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
           {activeTab === 'operators' && (
             <div className="space-y-8">
                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                  {/* RANKING TABLE */}
                   <div className="lg:col-span-12 bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm overflow-hidden">
                      <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest mb-8 flex items-center gap-2">
                         <Trophy className="text-yellow-500" size={18} /> Ranking de Performance (Vendas + Agilidade)
@@ -336,7 +325,6 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
                </div>
 
                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* TMA CURVE CHART */}
                   <div className="bg-white p-12 rounded-[64px] border border-slate-100 shadow-sm">
                      <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest mb-12 flex items-center gap-3">
                         <Activity className="text-blue-600" size={24} /> Curva de Tempo Médio de Atendimento (TMA)
@@ -369,7 +357,6 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
                      </div>
                   </div>
 
-                  {/* GAP TRANSITION HISTOGRAM */}
                   <div className="bg-white p-12 rounded-[64px] border border-slate-100 shadow-sm">
                      <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest mb-12 flex items-center gap-3">
                         <Clock className="text-indigo-600" size={24} /> Eficiência de Engajamento (GAP Médio)
@@ -511,7 +498,7 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
         </div>
       )}
 
-      {/* AUDIT MODAL */}
+      {/* DRILL DOWN MODAL (TABLE VIEW) */}
       {drillDownData.isOpen && (
         <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-2 md:p-8">
            <div className="bg-white w-full h-full max-w-[98vw] rounded-[48px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-300">
@@ -547,13 +534,17 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {drillDownData.data.map((item, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50 transition-colors group">
-                                <td className="sticky left-0 bg-white group-hover:bg-slate-50 z-10 py-5 px-6 border-r border-slate-50">
+                            <tr 
+                              key={idx} 
+                              onClick={() => drillDownData.type === 'question' && setSelectedAuditCall(item)}
+                              className={`transition-colors group ${drillDownData.type === 'question' ? 'cursor-pointer hover:bg-blue-50/50' : 'hover:bg-slate-50'}`}
+                            >
+                                <td className="sticky left-0 bg-white group-hover:bg-inherit z-10 py-5 px-6 border-r border-slate-50">
                                    <p className="font-black text-slate-800 text-sm">{item.client?.name || item.clients?.name || 'Manual'}</p>
                                    <span className="text-[10px] font-bold text-blue-600">{item.client?.phone || item.clients?.phone}</span>
                                 </td>
                                 <td className="py-5 px-6">
-                                  <span className="font-bold text-slate-600 text-xs">@{item.operator?.name || item.profiles?.username_display}</span>
+                                  <span className="font-bold text-slate-600 text-xs">@{item.operator?.name || item.profiles?.username_display || item.operator?.username}</span>
                                 </td>
                                 <td className="py-5 px-6">
                                   <span className="px-2 py-1 bg-slate-100 rounded text-[9px] font-black uppercase text-slate-500">{item.type || 'CHAMADA'}</span>
@@ -589,6 +580,103 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
               </div>
               <div className="p-8 bg-white border-t border-slate-100 flex justify-end">
                  <button onClick={() => setDrillDownData({ ...drillDownData, isOpen: false })} className="px-12 py-5 bg-slate-900 text-white rounded-[24px] font-black uppercase tracking-widest text-[11px] shadow-2xl active:scale-95 transition-all">Fechar Auditoria</button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* FICHA DE AUDITORIA COMPLETA (MODAL NÍVEL 2) */}
+      {selectedAuditCall && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 animate-in fade-in zoom-in duration-300">
+           <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[56px] shadow-2xl flex flex-col overflow-hidden">
+              <div className="bg-slate-900 p-10 text-white flex justify-between items-center shrink-0">
+                 <div>
+                    <h3 className="text-2xl font-black uppercase tracking-tighter">Ficha de Atendimento Real</h3>
+                    <p className="text-blue-400 text-[10px] font-black uppercase tracking-widest mt-1">
+                      {selectedAuditCall.client?.name || selectedAuditCall.clients?.name} &bull; Operador: {selectedAuditCall.operator?.name || selectedAuditCall.profiles?.username_display}
+                    </p>
+                 </div>
+                 <button onClick={() => setSelectedAuditCall(null)} className="p-3 hover:bg-white/10 rounded-full transition-all"><X size={28} /></button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-12 space-y-12 custom-scrollbar">
+                 <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-4">
+                       <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><MapPin size={16} className="text-red-500" /> Detalhes do Cliente</h4>
+                       <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100">
+                          <p className="text-lg font-black text-slate-800">{selectedAuditCall.client?.name || selectedAuditCall.clients?.name}</p>
+                          <p className="text-sm font-bold text-blue-600 mt-1">{selectedAuditCall.client?.phone || selectedAuditCall.clients?.phone}</p>
+                          <p className="text-xs text-slate-500 mt-4 leading-relaxed">{selectedAuditCall.client?.address || selectedAuditCall.clients?.address || 'Sem endereço'}</p>
+                          <div className="flex flex-wrap gap-2 mt-4">
+                             {(selectedAuditCall.client?.items || selectedAuditCall.clients?.items || []).map((it: string) => (
+                               <span key={it} className="bg-white text-[9px] font-black uppercase px-3 py-1 rounded-lg border border-slate-200">{it}</span>
+                             ))}
+                          </div>
+                       </div>
+                    </div>
+                    <div className="space-y-4">
+                       <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Clock size={16} className="text-indigo-500" /> Cronometria</h4>
+                       <div className="p-6 bg-slate-50 rounded-[32px] border border-slate-100 flex flex-col justify-center gap-6 h-[168px]">
+                          <div className="flex justify-between items-center">
+                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Início Chamada:</span>
+                             <span className="text-xs font-bold text-slate-800">{new Date(selectedAuditCall.startTime).toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Duração Conversa:</span>
+                             <span className="text-lg font-black text-slate-900">{formatTime(selectedAuditCall.duration)}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tempo de Escrita:</span>
+                             <span className="text-lg font-black text-slate-900">{formatTime(selectedAuditCall.report_time || selectedAuditCall.reportTime || 0)}</span>
+                          </div>
+                       </div>
+                    </div>
+                 </section>
+
+                 <section className="space-y-6">
+                    <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-3">
+                       <FileText className="text-blue-600" size={20} /> Relatório Escrito do Operador
+                    </h4>
+                    <div className="p-8 bg-blue-50/30 rounded-[32px] border border-blue-100 text-slate-800 font-bold italic whitespace-pre-wrap leading-relaxed shadow-sm">
+                       {selectedAuditCall.responses?.written_report || "Nenhum relatório escrito registrado para esta chamada."}
+                    </div>
+                 </section>
+
+                 <section className="space-y-6">
+                    <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-3">
+                       <ClipboardList className="text-indigo-600" size={20} /> Respostas do Questionário
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                       {Object.entries(selectedAuditCall.responses || {}).filter(([k]) => k !== 'written_report' && k !== 'call_type' && !k.endsWith('_note')).map(([qId, response]: any) => {
+                          const question = questions.find(q => q.id === qId || q.id.toLowerCase() === qId.toLowerCase());
+                          const label = question ? `${question.order}. ${question.text}` : qId.toUpperCase();
+                          const note = selectedAuditCall.responses[`${qId}_note`];
+                          return (
+                             <div key={qId} className="p-6 bg-white border border-slate-100 rounded-[28px] shadow-sm flex flex-col justify-between">
+                                <div>
+                                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-4 leading-tight">{label}</p>
+                                   <span className={`self-start px-4 py-2 rounded-xl text-xs font-black uppercase shadow-sm inline-block ${
+                                     response === 'Ótimo' || response === 'Sim' || response === 'Atendeu' || response === 'Boa' || response === 'No prazo' ? 'bg-green-600 text-white' :
+                                     response === 'Ruim' || response === 'Não' || response === 'Não atendeu' || response === 'Com problema' || response === 'Não, cliente perdido' ? 'bg-red-600 text-white' : 'bg-slate-900 text-white'
+                                   }`}>
+                                      {response}
+                                   </span>
+                                </div>
+                                {note && (
+                                  <div className="mt-4 p-3 bg-yellow-50 rounded-xl border border-yellow-100">
+                                     <p className="text-[8px] font-black uppercase text-yellow-600 mb-1">Nota do Operador:</p>
+                                     <p className="text-[11px] font-bold text-yellow-800 italic leading-relaxed">{note}</p>
+                                  </div>
+                                )}
+                             </div>
+                          );
+                       })}
+                    </div>
+                 </section>
+              </div>
+              
+              <div className="p-10 bg-slate-50 border-t border-slate-100 flex justify-end shrink-0">
+                 <button onClick={() => setSelectedAuditCall(null)} className="px-14 py-5 bg-slate-900 text-white rounded-[24px] font-black uppercase tracking-widest text-[11px] shadow-2xl active:scale-95 transition-all">Fechar Auditoria</button>
               </div>
            </div>
         </div>

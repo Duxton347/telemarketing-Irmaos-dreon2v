@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { 
   PhoneCall, Clock, AlertCircle, TrendingUp, BarChart3, Users, ClipboardList, Filter, X, ChevronRight, MessageCircle, UserCheck, PhoneForwarded, Loader2, Eye, FileText
@@ -170,9 +169,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                {/* Changed fontBold to fontWeight to resolve Recharts typing error */}
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10, fontWeight: 900}} />
-                {/* Changed fontBold to fontWeight to resolve Recharts typing error */}
                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#cbd5e1', fontSize: 10, fontWeight: 900}} />
                 <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '24px', border: 'none', boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.25)'}} />
                 <Bar dataKey="posVenda" stackId="a" fill="#10b981" radius={[2, 2, 0, 0]} />
@@ -328,11 +325,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                        <ClipboardList className="text-indigo-600" size={20} /> Respostas do Questionário
                     </h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                       {Object.entries(selectedAuditCall.responses || {}).filter(([k]) => k !== 'written_report' && k !== 'call_type').map(([qId, response]: any) => {
-                          const questionText = questions.find(q => q.id === qId)?.text || qId;
+                       {Object.entries(selectedAuditCall.responses || {}).filter(([k]) => k !== 'written_report' && k !== 'call_type' && !k.endsWith('_note')).map(([qId, response]: any) => {
+                          const question = questions.find(q => q.id === qId || q.id.toLowerCase() === qId.toLowerCase());
+                          const label = question ? `${question.order}. ${question.text}` : qId.toUpperCase();
                           return (
                              <div key={qId} className="p-6 bg-white border border-slate-100 rounded-[28px] shadow-sm flex flex-col justify-between">
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-2">{questionText}</p>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-4 leading-tight">{label}</p>
                                 <span className={`self-start px-4 py-2 rounded-xl text-xs font-black uppercase shadow-sm ${
                                   response === 'Ótimo' || response === 'Sim' || response === 'Atendeu' ? 'bg-green-600 text-white' :
                                   response === 'Ruim' || response === 'Não' || response === 'Não atendeu' ? 'bg-red-600 text-white' : 'bg-slate-900 text-white'
