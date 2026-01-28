@@ -4,7 +4,7 @@ import {
   Upload, Users, FileSpreadsheet, X, UserPlus, CheckCircle2, 
   Loader2, Info, AlertCircle, Clock, Database, Trash2, Save,
   MessageSquarePlus, ChevronUp, ChevronDown, Trash, Edit3, RotateCcw,
-  PhoneOff, RefreshCw, ListFilter, Plus, UserCheck, UserMinus, Phone, PlayCircle, ChevronRight, LayoutList
+  PhoneOff, RefreshCw, ListFilter, Plus, UserCheck, UserMinus, Phone, PlayCircle, ChevronRight, LayoutList, Eraser, Sparkles
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { User, UserRole, CallType, Question, Task } from '../types';
@@ -23,7 +23,6 @@ const Admin: React.FC = () => {
   
   const [userData, setUserData] = React.useState({ name: '', username: '', password: '', role: UserRole.OPERATOR });
   const [questionData, setQuestionData] = React.useState<Partial<Question>>({ text: '', options: [], type: 'ALL' as any, stageId: '' });
-  const [optionInput, setOptionInput] = React.useState('');
   
   const [selectedOperatorId, setSelectedOperatorId] = React.useState<string>('');
   const [selectedCallType, setSelectedCallType] = React.useState<CallType>(CallType.POS_VENDA);
@@ -70,21 +69,54 @@ const Admin: React.FC = () => {
     if (!confirm("Confirmar exclusão permanente desta tarefa da fila?")) return;
     
     setDeletingId(id);
-    // Backup para reverter se der erro
     const previousTasks = [...pendingTasks];
-    // Remove da tela na hora (Otimista)
     setPendingTasks(prev => prev.filter(t => t.id !== id));
 
     try {
       await dataService.deleteTask(id);
-      // Sucesso: Não precisa fazer nada, já sumiu da tela.
     } catch (e: any) {
       console.error("Erro ao deletar:", e);
-      // Reverte se der erro
       setPendingTasks(previousTasks);
-      alert(`O banco de dados recusou a exclusão. Verifique se você executou o SQL de permissão (RLS). Erro: ${e.message || 'Desconhecido'}`);
+      alert(`Erro na exclusão: ${e.message || 'Desconhecido'}`);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleClearOperatorTasks = async () => {
+    if (!selectedOperatorId) return alert("Selecione um operador no menu suspenso primeiro.");
+    
+    const operatorName = users.find(u => u.id === selectedOperatorId)?.name || 'selecionado';
+    if (!confirm(`ATENÇÃO: Deseja apagar TODAS as pendências da fila de ${operatorName}? Esta ação limpará duplicadas e pulados. É irreversível.`)) return;
+
+    setIsProcessing(true);
+    // Limpeza imediata local para evitar lag visual
+    const targetOpId = selectedOperatorId;
+    setPendingTasks(prev => prev.filter(t => t.assignedTo !== targetOpId));
+    setSkippedTasks(prev => prev.filter(t => t.assignedTo !== targetOpId));
+
+    try {
+      await dataService.deleteTasksByOperator(targetOpId);
+      alert("Fila limpa com sucesso no servidor e localmente!");
+      await refreshData();
+    } catch (e: any) {
+      alert(`Erro ao limpar fila no banco de dados: ${e.message}`);
+      await refreshData(); // Restaura caso falhe
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDeduplicate = async () => {
+    setIsProcessing(true);
+    try {
+      const removedCount = await dataService.deleteDuplicateTasks();
+      alert(`${removedCount} tarefas duplicadas foram removidas com sucesso!`);
+      await refreshData();
+    } catch (e: any) {
+      alert(`Erro na deduplicação: ${e.message}`);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -210,9 +242,6 @@ const Admin: React.FC = () => {
       const pendingByOpAndType = allTasks.filter(t => t.status === 'pending' && t.type === selectedCallType);
 
       let count = 0;
-      let skippedDuplicates = 0;
-      let skippedRecent = 0;
-
       for (const row of csvPreview) {
         const client = await dataService.upsertClient({ 
           name: row.name, 
@@ -222,16 +251,10 @@ const Admin: React.FC = () => {
         });
         
         const isDuplicateTask = pendingByOpAndType.some(t => t.clientId === client.id);
-        if (isDuplicateTask) {
-          skippedDuplicates++;
-          continue;
-        }
+        if (isDuplicateTask) continue;
 
         const hasRecentCall = await dataService.checkRecentCall(client.id);
-        if (hasRecentCall) {
-          skippedRecent++;
-          continue;
-        }
+        if (hasRecentCall) continue;
 
         await dataService.createTask({ 
           clientId: client.id, 
@@ -245,7 +268,6 @@ const Admin: React.FC = () => {
       setCsvPreview([]);
       await refreshData();
     } catch (e) {
-      console.error(e);
       alert("Erro na importação.");
     } finally { setIsProcessing(false); }
   };
@@ -267,7 +289,7 @@ const Admin: React.FC = () => {
     <div className="space-y-8 pb-20 animate-in fade-in duration-500">
       <header className="flex justify-between items-end">
         <div>
-          <h2 className="text-3xl font-black text-slate-800 tracking-tighter">Gestão Operacional Dreon</h2>
+          <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">Gestão Operacional Dreon</h2>
           <p className="text-slate-500 text-sm font-medium">Controle total da plataforma.</p>
         </div>
         <button onClick={refreshData} disabled={isProcessing} className="p-3 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-blue-600 transition-all disabled:opacity-50">
@@ -291,9 +313,37 @@ const Admin: React.FC = () => {
 
       {activeTab === 'tasks' && (
         <div className="bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm space-y-8 animate-in fade-in duration-300">
-           <div>
-              <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Gerenciar Fila Ativa</h3>
-              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-2">Remova tarefas clicando na lixeira vermelha. A ação é instantânea na interface.</p>
+           <div className="flex flex-col lg:flex-row justify-between items-start gap-4">
+              <div>
+                <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Gerenciar Fila Ativa</h3>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-2">Remova duplicatas ou limpe a fila inteira de um operador.</p>
+              </div>
+              <div className="flex flex-wrap gap-4">
+                 <button 
+                    onClick={handleDeduplicate}
+                    disabled={isProcessing}
+                    className="flex items-center gap-2 px-6 py-3 bg-blue-50 text-blue-600 rounded-xl font-black uppercase text-[10px] shadow-sm hover:bg-blue-600 hover:text-white transition-all disabled:opacity-30"
+                  >
+                    <Sparkles size={16} /> Limpar Todos os Duplicados
+                  </button>
+                 <select 
+                    value={selectedOperatorId} 
+                    onChange={e => setSelectedOperatorId(e.target.value)}
+                    className="p-3 bg-slate-50 border border-slate-200 rounded-xl font-black text-[10px] uppercase outline-none"
+                  >
+                    <option value="">Operador alvo...</option>
+                    {users.filter(u => u.role !== UserRole.ADMIN).map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                  <button 
+                    onClick={handleClearOperatorTasks}
+                    disabled={isProcessing || !selectedOperatorId}
+                    className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-black uppercase text-[10px] shadow-lg shadow-red-500/20 active:scale-95 transition-all disabled:opacity-30"
+                  >
+                    {isProcessing ? <Loader2 className="animate-spin" size={16} /> : <Eraser size={16} />} Limpar Tudo do Operador
+                  </button>
+              </div>
            </div>
 
            <div className="overflow-x-auto">
@@ -323,7 +373,7 @@ const Admin: React.FC = () => {
                             <button 
                               onClick={() => handleDeleteTask(task.id)}
                               disabled={deletingId === task.id}
-                              className="w-12 h-12 flex items-center justify-center bg-[#ef4444] text-white rounded-2xl hover:bg-red-700 transition-all active:scale-95 shadow-lg shadow-red-500/20 disabled:opacity-50"
+                              className="w-12 h-12 flex items-center justify-center bg-red-600 text-white rounded-2xl hover:bg-red-700 transition-all active:scale-95 shadow-lg shadow-red-500/20 disabled:opacity-50"
                               title="Excluir tarefa permanentemente"
                             >
                                {deletingId === task.id ? <Loader2 className="animate-spin" size={20} /> : <Trash2 size={20} />}
@@ -333,7 +383,7 @@ const Admin: React.FC = () => {
                     ))}
                     {pendingTasks.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="py-20 text-center text-slate-300 font-black uppercase text-xs">A fila de trabalho está vazia.</td>
+                        <td colSpan={4} className="py-20 text-center text-slate-300 font-black uppercase text-xs tracking-widest">A fila de trabalho está vazia.</td>
                       </tr>
                     )}
                  </tbody>
@@ -578,37 +628,6 @@ const Admin: React.FC = () => {
         </div>
       )}
 
-      {/* QUESTION MODAL */}
-      {isQuestionModalOpen && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
-           <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
-              <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
-                 <h3 className="text-xl font-black flex items-center gap-3">Nova Pergunta</h3>
-                 <button onClick={() => setIsQuestionModalOpen(false)}><X size={24} /></button>
-              </div>
-              <form onSubmit={handleSaveQuestion} className="p-8 space-y-5">
-                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Texto da Pergunta</label>
-                    <textarea required value={questionData.text} onChange={e => setQuestionData({...questionData, text: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm h-24 outline-none" />
-                 </div>
-                 <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Opções (Pressione Enter)</label>
-                    <input value={optionInput} onChange={e => setOptionInput(e.target.value)} onKeyDown={e => { if(e.key === 'Enter') { e.preventDefault(); if(optionInput) { setQuestionData({...questionData, options: [...(questionData.options || []), optionInput]}); setOptionInput(''); } } }} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm" placeholder="Ex: Sim, Não, Talvez" />
-                    <div className="flex flex-wrap gap-2">
-                       {questionData.options?.map((opt, i) => (
-                         <span key={i} className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase flex items-center gap-2">
-                            {opt} <button type="button" onClick={() => setQuestionData({...questionData, options: questionData.options?.filter((_, idx) => idx !== i)})}><X size={12}/></button>
-                         </span>
-                       ))}
-                    </div>
-                 </div>
-                 <button type="submit" className="w-full py-6 bg-blue-600 text-white rounded-[32px] font-black uppercase tracking-widest text-[10px]">Salvar Pergunta</button>
-              </form>
-           </div>
-        </div>
-      )}
-
-      {/* USER MODAL */}
       {isUserModalOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
            <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
@@ -624,6 +643,26 @@ const Admin: React.FC = () => {
                     {Object.values(UserRole).map(role => <option key={role} value={role}>{role}</option>)}
                  </select>
                  <button type="submit" className="w-full py-6 bg-slate-900 text-white rounded-[32px] font-black uppercase tracking-widest text-[10px]">Criar Usuário</button>
+              </form>
+           </div>
+        </div>
+      )}
+
+      {isQuestionModalOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
+           <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+              <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
+                 <h3 className="text-xl font-black uppercase tracking-tighter">Questão Dinâmica</h3>
+                 <button onClick={() => setIsQuestionModalOpen(false)}><X size={24} /></button>
+              </div>
+              <form onSubmit={handleSaveQuestion} className="p-8 space-y-4">
+                 <input type="text" placeholder="Texto da Pergunta" required value={questionData.text} onChange={e => setQuestionData({...questionData, text: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                 <input type="text" placeholder="Opções (vire vírgula)" required value={questionData.options?.join(',')} onChange={e => setQuestionData({...questionData, options: e.target.value.split(',')})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                 <select value={questionData.type} onChange={e => setQuestionData({...questionData, type: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase">
+                    {Object.values(CallType).map(t => <option key={t} value={t}>{t}</option>)}
+                    <option value="ALL">TODAS AS CATEGORIAS</option>
+                 </select>
+                 <button type="submit" className="w-full py-6 bg-blue-600 text-white rounded-[32px] font-black uppercase tracking-widest text-[10px]">Salvar Pergunta</button>
               </form>
            </div>
         </div>

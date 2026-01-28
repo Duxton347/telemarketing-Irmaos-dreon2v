@@ -1,4 +1,3 @@
-
 import { supabase, normalizePhone, getInternalEmail, slugify } from '../lib/supabase';
 import { 
   User, Client, Task, CallRecord, Protocol, Question, 
@@ -89,6 +88,7 @@ export const dataService = {
   },
 
   saveQuestion: async (q: Partial<Question>): Promise<void> => {
+    // Fix: Using stageId instead of stage_id as defined in the Question interface
     const payload = { text: q.text, options: q.options, type: q.type, order_index: q.order, stage_id: q.stageId };
     if (q.id) await supabase.from('questions').update(payload).eq('id', q.id);
     else await supabase.from('questions').insert(payload);
@@ -133,6 +133,47 @@ export const dataService = {
     if (error) throw error;
   },
 
+  deleteTasksByOperator: async (operatorId: string): Promise<void> => {
+    // Apaga pendências e pulados do operador
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('assigned_to', operatorId)
+      .in('status', ['pending', 'skipped']);
+    if (error) throw error;
+  },
+
+  deleteDuplicateTasks: async (): Promise<number> => {
+    const { data: tasks, error } = await supabase
+      .from('tasks')
+      .select('id, client_id, assigned_to, type, status')
+      .eq('status', 'pending');
+    
+    if (error || !tasks) return 0;
+
+    const seen = new Set();
+    const toDelete = [];
+
+    for (const task of tasks) {
+      const key = `${task.client_id}-${task.assigned_to}-${task.type}`;
+      if (seen.has(key)) {
+        toDelete.push(task.id);
+      } else {
+        seen.add(key);
+      }
+    }
+
+    if (toDelete.length > 0) {
+      const { error: delError } = await supabase
+        .from('tasks')
+        .delete()
+        .in('id', toDelete);
+      if (delError) throw delError;
+    }
+
+    return toDelete.length;
+  },
+
   getCalls: async (): Promise<CallRecord[]> => {
     const { data, error } = await supabase.from('call_logs').select('*').order('start_time', { ascending: false });
     if (error) throw error;
@@ -151,7 +192,6 @@ export const dataService = {
     }));
   },
 
-  // Verifica se o cliente recebeu ligação nos últimos 3 dias
   checkRecentCall: async (clientId: string): Promise<boolean> => {
     const threeDaysAgo = new Date();
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
@@ -181,7 +221,6 @@ export const dataService = {
       protocol_id: call.protocolId
     });
     
-    // Atualiza a data de interação no cliente
     await supabase.from('clients').update({ last_interaction: new Date().toISOString() }).eq('id', call.clientId);
   },
 
@@ -251,7 +290,6 @@ export const dataService = {
     const phone = normalizePhone(client.phone || '');
     if (!phone) throw new Error("Telefone obrigatório");
 
-    // Primeiro tentamos ver se já existe esse telefone
     const { data: existing } = await supabase.from('clients').select('*').eq('phone', phone).maybeSingle();
     
     const payload: any = { 
