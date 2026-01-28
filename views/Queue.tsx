@@ -2,7 +2,7 @@
 import React from 'react';
 import { 
   Phone, PhoneOff, SkipForward, Play, CheckCircle2, 
-  Loader2, Clock, MapPin, User, FileText, AlertCircle, Save, X, MessageCircle, Copy, Check, ChevronRight, AlertTriangle, ClipboardList
+  Loader2, Clock, MapPin, User, FileText, AlertCircle, Save, X, MessageCircle, Copy, Check, ChevronRight, AlertTriangle, ClipboardList, Zap
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { Task, Client, Question, CallType, OperatorEventType, ProtocolStatus } from '../types';
@@ -107,6 +107,12 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
     setIsFillingReport(true); 
   };
 
+  const handleSkipDuringCall = () => {
+    setIsSkipModalOpen(true);
+    // Nota: Mantemos isCalling true visualmente no fundo ou pausamos se preferir, 
+    // mas o modal de skip deve sobrepor tudo.
+  };
+
   const handleCopyPhone = () => {
     if (client) {
       navigator.clipboard.writeText(client.phone);
@@ -141,7 +147,6 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
   const handleSubmitReport = async () => {
     if (!currentTask || !client) return;
     
-    // Validação básica se o protocolo foi ativado
     if (needsProtocol && !protoData.title.trim()) {
       alert("Informe um título para o protocolo.");
       return;
@@ -151,30 +156,23 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
     try {
       let protocolId = undefined;
       
-      // Se precisar de protocolo, cria agora
       if (needsProtocol) {
         const slaHours = PROTOCOL_SLA[protoData.priority] || 48;
         const now = new Date();
         const p = {
-          id: '',
           clientId: client.id,
           openedByOperatorId: user.id,
           ownerOperatorId: user.id,
           origin: 'Atendimento',
           departmentId: protoData.departmentId,
-          categoryId: '',
           title: protoData.title.trim(),
           description: callSummary || 'Protocolo aberto via finalização de chamada.',
           priority: protoData.priority,
           status: ProtocolStatus.ABERTO,
           openedAt: now.toISOString(),
           updatedAt: now.toISOString(),
-          lastActionAt: now.toISOString(),
           slaDueAt: new Date(now.getTime() + slaHours * 3600000).toISOString()
         };
-        
-        // Salvamento simulado via dataService para obter o ID (precisaria retornar o objeto no dataService)
-        // Por simplicidade, vamos salvar e o dataService cuida do resto
         await dataService.saveProtocol(p as any, user.id);
       }
 
@@ -189,7 +187,6 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
         reportTime: reportDuration,
         responses: { ...responses, written_report: callSummary, call_type: currentTask.type },
         type: currentTask.type,
-        protocolId
       };
       
       await dataService.saveCall(callData);
@@ -280,12 +277,17 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
                      <p className="text-xl font-black">{isFillingReport ? 'Preenchendo Relatório' : 'Ligação em Curso'}</p>
                    </div>
                 </div>
-                <div className="flex items-center gap-6">
-                   <div className="text-right">
+                <div className="flex items-center gap-4">
+                   <div className="text-right mr-4">
                       <p className="text-[9px] font-black text-slate-500 uppercase">Tempo</p>
                       <p className="font-black text-lg">{Math.floor(callDuration / 60)}m {callDuration % 60}s</p>
                    </div>
-                   {isCalling && <button onClick={handleEndCall} className="px-8 py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl active:scale-95 transition-all">Desligar</button>}
+                   {isCalling && (
+                     <div className="flex gap-2">
+                        <button onClick={handleSkipDuringCall} className="px-6 py-4 bg-slate-700 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-600 active:scale-95 transition-all">Pular</button>
+                        <button onClick={handleEndCall} className="px-8 py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl active:scale-95 transition-all">Desligar</button>
+                     </div>
+                   )}
                 </div>
              </header>
 
@@ -321,16 +323,15 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
                    <textarea value={callSummary} onChange={e => setCallSummary(e.target.value)} className="w-full p-8 bg-slate-50 rounded-[40px] border border-slate-100 font-bold text-slate-800 h-48 outline-none resize-none focus:ring-8 focus:ring-blue-500/5 transition-all" placeholder="O que foi conversado? Anote detalhes importantes para o próximo contato." />
                 </section>
 
-                {/* OPÇÃO DE PROTOCOLO NO REPORT */}
                 {isFillingReport && (
-                  <section className="space-y-6 p-10 bg-blue-50/50 rounded-[48px] border border-blue-100">
+                  <section className="space-y-6 p-10 bg-blue-50/50 rounded-[48px] border border-blue-100 animate-in slide-in-from-bottom-2">
                     <div className="flex items-center justify-between">
                        <h5 className="text-[11px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-3">
                           <ClipboardList size={22} /> Gerar Protocolo de Atendimento?
                        </h5>
                        <button 
                         onClick={() => setNeedsProtocol(!needsProtocol)}
-                        className={`w-14 h-8 rounded-full transition-all relative ${needsProtocol ? 'bg-blue-600' : 'bg-slate-300'}`}
+                        className={`w-14 h-8 rounded-full transition-all relative ${needsProtocol ? 'bg-blue-600 shadow-lg shadow-blue-500/30' : 'bg-slate-300'}`}
                        >
                          <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all ${needsProtocol ? 'left-7' : 'left-1'}`}></div>
                        </button>
@@ -344,7 +345,7 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
                             type="text" 
                             value={protoData.title}
                             onChange={e => setProtoData({...protoData, title: e.target.value})}
-                            className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold outline-none"
+                            className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-bold outline-none focus:border-blue-500"
                             placeholder="Ex: Reclamação de atraso na bomba..."
                            />
                         </div>
@@ -396,7 +397,9 @@ const Queue: React.FC<QueueProps> = ({ user }) => {
         <div className="fixed inset-0 z-[150] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
            <div className="bg-white w-full max-w-md rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
               <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
-                 <h3 className="text-xl font-black uppercase tracking-tighter">Motivo do Pulo</h3>
+                 <h3 className="text-xl font-black uppercase tracking-tighter">
+                   {isCalling ? 'Pular Chamada em Curso' : 'Motivo do Pulo'}
+                 </h3>
                  <button onClick={() => setIsSkipModalOpen(false)}><X size={24} /></button>
               </div>
               <div className="p-8 space-y-3">

@@ -1,3 +1,4 @@
+
 import { supabase, normalizePhone, getInternalEmail, slugify } from '../lib/supabase';
 import { 
   User, Client, Task, CallRecord, Protocol, Question, 
@@ -88,7 +89,6 @@ export const dataService = {
   },
 
   saveQuestion: async (q: Partial<Question>): Promise<void> => {
-    // Fix: Using stageId instead of stage_id as defined in the Question interface
     const payload = { text: q.text, options: q.options, type: q.type, order_index: q.order, stage_id: q.stageId };
     if (q.id) await supabase.from('questions').update(payload).eq('id', q.id);
     else await supabase.from('questions').insert(payload);
@@ -134,7 +134,6 @@ export const dataService = {
   },
 
   deleteTasksByOperator: async (operatorId: string): Promise<void> => {
-    // Apaga pendências e pulados do operador
     const { error } = await supabase
       .from('tasks')
       .delete()
@@ -359,28 +358,38 @@ export const dataService = {
   },
 
   saveProtocol: async (p: Protocol, actorId: string): Promise<boolean> => {
-    const { data, error } = await supabase.from('protocols').insert({
-      client_id: p.clientId,
-      opened_by_id: p.openedByOperatorId,
-      owner_id: p.ownerOperatorId,
-      origin: p.origin,
-      department_id: p.departmentId,
-      title: p.title,
-      description: p.description,
-      priority: p.priority,
-      status: p.status,
-      opened_at: p.openedAt,
-      updated_at: p.updatedAt,
-      sla_due_at: p.slaDueAt
-    }).select().single();
-    if (error) throw error;
-    await supabase.from('protocol_events').insert({
-      protocol_id: data.id,
-      event_type: 'creation',
-      note: 'Protocolo aberto manualmente',
-      actor_id: actorId
-    });
-    return true;
+    try {
+      const { data, error } = await supabase.from('protocols').insert({
+        client_id: p.clientId,
+        opened_by_id: p.openedByOperatorId,
+        owner_id: p.ownerOperatorId,
+        origin: p.origin || 'Manual',
+        department_id: p.departmentId,
+        title: p.title,
+        description: p.description,
+        priority: p.priority,
+        status: p.status,
+        opened_at: p.openedAt,
+        updated_at: p.updatedAt,
+        sla_due_at: p.slaDueAt
+      }).select().single();
+      
+      if (error) {
+        console.error("[dataService.saveProtocol] Insert Error:", error);
+        throw error;
+      }
+      
+      await supabase.from('protocol_events').insert({
+        protocol_id: data.id,
+        event_type: 'creation',
+        note: 'Protocolo aberto manualmente',
+        actor_id: actorId
+      });
+      return true;
+    } catch (err) {
+      console.error("[dataService.saveProtocol] Fatal Error:", err);
+      throw err;
+    }
   },
 
   updateProtocol: async (protocolId: string, updates: Partial<Protocol>, actorId: string, note?: string): Promise<boolean> => {

@@ -1,6 +1,7 @@
+
 import React from 'react';
 import { 
-  PhoneCall, Clock, AlertCircle, TrendingUp, BarChart3, Users, ClipboardList, Filter, X, ChevronRight, MessageCircle, UserCheck, PhoneForwarded, Loader2, Eye, FileText
+  PhoneCall, Clock, AlertCircle, TrendingUp, BarChart3, Users, ClipboardList, Filter, X, ChevronRight, MessageCircle, UserCheck, PhoneForwarded, Loader2, Eye, FileText, AlertTriangle
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Tooltip as PieTooltip
@@ -17,6 +18,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const navigate = useNavigate();
   const [operators, setOperators] = React.useState<User[]>([]);
   const [questions, setQuestions] = React.useState<Question[]>([]);
+  const [urgentProtocols, setUrgentProtocols] = React.useState<Protocol[]>([]);
   const [selectedFilter, setSelectedFilter] = React.useState<string>(user?.role === UserRole.OPERATOR ? user.id : 'all');
   
   // Modal States
@@ -59,6 +61,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     
     const displayProtocols = filterId === 'all' ? protocols : protocols.filter(p => p.ownerOperatorId === filterId || p.openedByOperatorId === filterId);
     
+    // Protocolos Urgentes (Abertos ou Reabertos)
+    const urgent = displayProtocols.filter(p => 
+      p.status === ProtocolStatus.ABERTO || 
+      p.status === ProtocolStatus.REABERTO ||
+      (user.role === UserRole.ADMIN && p.status === ProtocolStatus.RESOLVIDO_PENDENTE)
+    );
+    setUrgentProtocols(urgent);
+
     const totalDur = displayCalls.reduce((acc, c) => acc + (c.duration || 0), 0);
     const avgSec = displayCalls.length > 0 ? Math.floor(totalDur / displayCalls.length) : 0;
     
@@ -150,6 +160,42 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
           </div>
         )}
       </header>
+
+      {/* SEÇÃO DE PROTOCOLOS URGENTES - DESTAQUE VERMELHO BRILHANTE */}
+      {urgentProtocols.length > 0 && (
+        <div className="bg-red-600 rounded-[48px] p-1 shadow-2xl shadow-red-500/50 animate-pulse transition-all">
+           <div className="bg-white rounded-[44px] p-8 space-y-6">
+              <div className="flex items-center gap-4 text-red-600">
+                 <AlertTriangle size={32} className="animate-bounce" />
+                 <div>
+                    <h3 className="text-2xl font-black uppercase tracking-tighter">Protocolos Críticos Pendentes</h3>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Atenção imediata necessária nestes registros</p>
+                 </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                 {urgentProtocols.slice(0, 3).map(p => (
+                   <button 
+                    key={p.id} 
+                    onClick={() => navigate('/protocols')}
+                    className="p-6 bg-red-50 border-2 border-red-200 rounded-[32px] text-left hover:bg-red-100 transition-all group"
+                   >
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="bg-red-600 text-white px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest">{p.status}</span>
+                        <ChevronRight className="text-red-300 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                      <h4 className="font-black text-slate-800 text-sm line-clamp-1">{p.title}</h4>
+                      <p className="text-[10px] font-bold text-red-400 mt-2 uppercase tracking-widest">#{p.protocolNumber || p.id.substring(0,8)}</p>
+                   </button>
+                 ))}
+                 {urgentProtocols.length > 3 && (
+                   <button onClick={() => navigate('/protocols')} className="bg-slate-100 rounded-[32px] flex items-center justify-center font-black text-[10px] uppercase tracking-widest text-slate-400 hover:bg-slate-200 transition-all">
+                      + {urgentProtocols.length - 3} outros pendentes
+                   </button>
+                 )}
+              </div>
+           </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard onClick={() => openDetails('calls')} title="Ligações de Hoje" value={stats.totalCalls} icon={PhoneCall} color="bg-blue-600" />
