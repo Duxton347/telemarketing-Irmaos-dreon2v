@@ -1,18 +1,19 @@
-// Added missing React import
+
 import React from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   Cell, LineChart, Line, Legend, AreaChart, Area
 } from 'recharts';
 import { 
-  X, Loader2, AlertCircle, TrendingUp, Target, Heart, Filter, PhoneOff, Zap, BarChart3, CheckCircle2, ClipboardList, Timer, Phone, Eye, Trophy, Clock, SkipForward, ArrowUpRight, Activity, FileText, MapPin
+  X, Loader2, AlertCircle, TrendingUp, Target, Heart, Filter, PhoneOff, Zap, BarChart3, CheckCircle2, ClipboardList, Timer, Phone, Eye, Trophy, Clock, SkipForward, ArrowUpRight, Activity, FileText, MapPin, Download, FileSpreadsheet
 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 import { CallRecord, User, Client, Protocol, Question, ProtocolStatus, Task, OperatorEvent, OperatorEventType } from '../types';
 
 const Reports: React.FC<{ user: any }> = ({ user }) => {
   const [isLoading, setIsLoading] = React.useState(true);
-  const [activeTab, setActiveTab] = React.useState<'overview' | 'protocols' | 'deep_dive' | 'operators'>('overview');
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [activeTab, setActiveTab] = React.useState<'overview' | 'operators' | 'protocols' | 'deep_dive' | 'operators'>('overview');
   const [startDate, setStartDate] = React.useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
   const [endDate, setEndDate] = React.useState(new Date().toISOString().split('T')[0]);
   
@@ -83,6 +84,87 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
   }, [startDate, endDate]);
 
   React.useEffect(() => { load(); }, [load]);
+
+  const handleExportCSV = () => {
+    if (calls.length === 0) return alert("Não há chamadas atendidas no período para exportar.");
+    setIsExporting(true);
+
+    try {
+      // 1. Organizar perguntas cadastradas para garantir colunas fixas
+      const sortedQuestions = [...questions].sort((a, b) => a.order - b.order);
+      
+      // 2. Definir Cabeçalhos Tabulares
+      const headers = [
+        "DATA_LIGACAO",
+        "HORA_LIGACAO",
+        "CLIENTE",
+        "TELEFONE",
+        "OPERADOR",
+        "TIPO_SERVICO",
+        "DURACAO_CONVERSA",
+        ...sortedQuestions.map(q => `RESPOSTA: ${q.text.toUpperCase().replace(/[;]/g, '')}`),
+        "RELATORIO_FINAL_DO_OPERADOR"
+      ];
+
+      // 3. Mapear exclusivamente CHAMADAS CONCLUÍDAS (Realizadas)
+      const rows = calls.map(call => {
+        const client = clients.find(c => c.id === call.clientId);
+        const operator = operators.find(o => o.id === call.operatorId);
+        const dateObj = new Date(call.startTime);
+        
+        const dataStr = dateObj.toLocaleDateString('pt-BR');
+        const horaStr = dateObj.toLocaleTimeString('pt-BR');
+
+        // Mapear respostas em suas colunas exatas
+        const qResponses = sortedQuestions.map(q => {
+          const resp = dataService.getResponseValue(call.responses, q);
+          // Retorna a resposta ou traço se não houver (ex: pergunta não se aplica ao tipo de chamada)
+          return resp !== undefined ? `${String(resp).replace(/[;"]/g, '').trim()}` : '-';
+        });
+
+        // Higienizar o relatório final do operador
+        const writtenReport = call.responses?.written_report 
+          ? String(call.responses.written_report)
+              .replace(/\n/g, ' ')
+              .replace(/\r/g, '')
+              .replace(/[;"]/g, "'")
+              .trim()
+          : "Nenhum relatório preenchido";
+
+        return [
+          dataStr,
+          horaStr,
+          (client?.name || 'Venda Manual').replace(/[;"]/g, '').trim(),
+          client?.phone || '-',
+          (operator?.name || 'Excluído').replace(/[;"]/g, '').trim(),
+          call.type,
+          `${Math.floor(call.duration/60)}m ${call.duration%60}s`,
+          ...qResponses,
+          writtenReport
+        ].map(val => `"${val}"`).join(';'); // Delimitado por aspas e separado por ponto-e-vírgula
+      });
+
+      // 4. Montagem do Arquivo com BOM (Excel BR Friendly)
+      const BOM = "\uFEFF";
+      const csvContent = BOM + headers.join(';') + "\n" + rows.join('\n');
+      
+      // 5. Download Automático
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.body.appendChild(document.createElement('a'));
+      link.href = url;
+      link.download = `Dreon_Relatorio_Atendimentos_${startDate}_a_${endDate}.csv`;
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+    } catch (e) {
+      console.error("Erro na exportação:", e);
+      alert("Falha técnica ao gerar CSV.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const operatorMetrics = React.useMemo(() => {
     if (!operators.length) return { ranking: [], tmaTimeline: [] };
@@ -215,7 +297,7 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
           <h2 className="text-4xl font-black text-slate-800 tracking-tighter uppercase">Relatórios Irmãos Dreon</h2>
           <p className="text-slate-500 font-bold mt-1">Inteligência operacional em tempo real.</p>
         </div>
-        <div className="flex bg-white p-1.5 rounded-[24px] border border-slate-200 shadow-sm overflow-x-auto no-scrollbar">
+        <div className="flex bg-white p-1.5 rounded-[24px] border border-slate-200 shadow-sm overflow-x-auto no-scrollbar shrink-0">
            {[
              { id: 'overview', label: 'Score Global', icon: Target },
              { id: 'operators', label: 'Operadores & Ranking', icon: Trophy },
@@ -241,19 +323,29 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none" />
           </div>
         </div>
-        <div className="lg:col-span-9 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="lg:col-span-6 grid grid-cols-1 md:grid-cols-3 gap-6">
            <div className="bg-blue-50 p-6 rounded-[32px] text-center border border-blue-100">
               <p className="text-[9px] font-black uppercase text-blue-400 tracking-widest mb-1">IDE Global</p>
               <p className="text-3xl font-black text-blue-600">{consolidatedIDE}%</p>
            </div>
            <div className="bg-slate-900 p-6 rounded-[32px] text-center">
-              <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest mb-1">Amostragem Real</p>
+              <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest mb-1">Chamadas</p>
               <p className="text-3xl font-black text-white">{calls.length}</p>
            </div>
            <div className="bg-red-50 p-6 rounded-[32px] text-center border border-red-100">
-              <p className="text-[9px] font-black uppercase text-red-400 tracking-widest mb-1">Fugas/Pulos</p>
+              <p className="text-[9px] font-black uppercase text-red-400 tracking-widest mb-1">Fugas</p>
               <p className="text-3xl font-black text-red-600">{tasks.filter(t => t.status === 'skipped').length}</p>
            </div>
+        </div>
+        <div className="lg:col-span-3 flex justify-end">
+           <button 
+            onClick={handleExportCSV}
+            disabled={isExporting || calls.length === 0}
+            className="w-full lg:w-auto px-8 py-5 bg-emerald-600 text-white rounded-[24px] font-black uppercase tracking-widest text-[10px] shadow-2xl flex items-center justify-center gap-3 hover:bg-emerald-700 active:scale-95 transition-all disabled:opacity-30"
+           >
+              {isExporting ? <Loader2 className="animate-spin" size={18} /> : <FileSpreadsheet size={18} />}
+              {isExporting ? 'Processando...' : 'Exportar Atendimentos'}
+           </button>
         </div>
       </div>
 
@@ -320,72 +412,6 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
                               ))}
                            </tbody>
                         </table>
-                     </div>
-                  </div>
-               </div>
-
-               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <div className="bg-white p-12 rounded-[64px] border border-slate-100 shadow-sm">
-                     <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest mb-12 flex items-center gap-3">
-                        <Activity className="text-blue-600" size={24} /> Curva de Tempo Médio de Atendimento (TMA)
-                     </h4>
-                     <div className="h-[300px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                           <AreaChart data={operatorMetrics.tmaTimeline}>
-                              <defs>
-                                <linearGradient id="colorTma" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="#2563eb" stopOpacity={0.1}/>
-                                  <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
-                                </linearGradient>
-                              </defs>
-                              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 900}} />
-                              <YAxis hide domain={['auto', 'auto']} />
-                              <Tooltip cursor={{stroke: '#2563eb', strokeWidth: 1}} content={({ active, payload }) => {
-                                if (active && payload && payload.length) {
-                                  return (
-                                    <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-2xl border border-white/10">
-                                       <p className="text-[10px] font-black uppercase tracking-widest mb-2">{payload[0].payload.name}</p>
-                                       <p className="text-xs font-bold text-blue-400">TMA Médio: {formatTime(payload[0].value as number)}</p>
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              }} />
-                              <Area type="monotone" dataKey="tma" stroke="#2563eb" strokeWidth={4} fillOpacity={1} fill="url(#colorTma)" />
-                           </AreaChart>
-                        </ResponsiveContainer>
-                     </div>
-                  </div>
-
-                  <div className="bg-white p-12 rounded-[64px] border border-slate-100 shadow-sm">
-                     <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest mb-12 flex items-center gap-3">
-                        <Clock className="text-indigo-600" size={24} /> Eficiência de Engajamento (GAP Médio)
-                     </h4>
-                     <div className="h-[300px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                           <BarChart data={operatorMetrics.ranking}>
-                              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 900}} />
-                              <YAxis hide />
-                              <Tooltip cursor={{fill: '#f8fafc'}} content={({ active, payload }) => {
-                                if (active && payload && payload.length) {
-                                  const d = payload[0].payload;
-                                  return (
-                                    <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-2xl border border-white/10">
-                                       <p className="font-black text-[10px] uppercase mb-2">{d.name}</p>
-                                       <p className="text-xs font-bold text-blue-400">Tempo de Espera: {formatTime(d.avgGap)}</p>
-                                       <p className="text-[8px] uppercase font-black text-slate-400 mt-2">Menor é melhor</p>
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              }} />
-                              <Bar dataKey="avgGap" radius={[12, 12, 12, 12]} barSize={40}>
-                                 {operatorMetrics.ranking.map((entry, index) => (
-                                   <Cell key={`cell-${index}`} fill={entry.avgGap < 100 ? '#10b981' : entry.avgGap < 300 ? '#f59e0b' : '#ef4444'} />
-                                 ))}
-                              </Bar>
-                           </BarChart>
-                        </ResponsiveContainer>
                      </div>
                   </div>
                </div>
@@ -585,7 +611,7 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
         </div>
       )}
 
-      {/* FICHA DE AUDITORIA COMPLETA (MODAL NÍVEL 2) */}
+      {/* FICHA DE AUDITORIA COMPLETA */}
       {selectedAuditCall && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/90 backdrop-blur-2xl p-4 animate-in fade-in zoom-in duration-300">
            <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[56px] shadow-2xl flex flex-col overflow-hidden">
@@ -625,10 +651,6 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Duração Conversa:</span>
                              <span className="text-lg font-black text-slate-900">{formatTime(selectedAuditCall.duration)}</span>
                           </div>
-                          <div className="flex justify-between items-center">
-                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tempo de Escrita:</span>
-                             <span className="text-lg font-black text-slate-900">{formatTime(selectedAuditCall.report_time || selectedAuditCall.reportTime || 0)}</span>
-                          </div>
                        </div>
                     </div>
                  </section>
@@ -650,24 +672,12 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
                        {Object.entries(selectedAuditCall.responses || {}).filter(([k]) => k !== 'written_report' && k !== 'call_type' && !k.endsWith('_note')).map(([qId, response]: any) => {
                           const question = questions.find(q => q.id === qId || q.id.toLowerCase() === qId.toLowerCase());
                           const label = question ? `${question.order}. ${question.text}` : qId.toUpperCase();
-                          const note = selectedAuditCall.responses[`${qId}_note`];
                           return (
                              <div key={qId} className="p-6 bg-white border border-slate-100 rounded-[28px] shadow-sm flex flex-col justify-between">
-                                <div>
-                                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-4 leading-tight">{label}</p>
-                                   <span className={`self-start px-4 py-2 rounded-xl text-xs font-black uppercase shadow-sm inline-block ${
-                                     response === 'Ótimo' || response === 'Sim' || response === 'Atendeu' || response === 'Boa' || response === 'No prazo' ? 'bg-green-600 text-white' :
-                                     response === 'Ruim' || response === 'Não' || response === 'Não atendeu' || response === 'Com problema' || response === 'Não, cliente perdido' ? 'bg-red-600 text-white' : 'bg-slate-900 text-white'
-                                   }`}>
-                                      {response}
-                                   </span>
-                                </div>
-                                {note && (
-                                  <div className="mt-4 p-3 bg-yellow-50 rounded-xl border border-yellow-100">
-                                     <p className="text-[8px] font-black uppercase text-yellow-600 mb-1">Nota do Operador:</p>
-                                     <p className="text-[11px] font-bold text-yellow-800 italic leading-relaxed">{note}</p>
-                                  </div>
-                                )}
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-4 leading-tight">{label}</p>
+                                <span className="self-start px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black uppercase shadow-sm">
+                                   {response}
+                                </span>
                              </div>
                           );
                        })}
@@ -685,4 +695,5 @@ const Reports: React.FC<{ user: any }> = ({ user }) => {
   );
 };
 
+// Fixed export from Protocols to Reports
 export default Reports;

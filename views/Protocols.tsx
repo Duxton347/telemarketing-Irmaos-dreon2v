@@ -45,9 +45,16 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
   const config = dataService.getProtocolConfig();
 
   const [newProto, setNewProto] = React.useState({
-    clientId: '', clientSearch: '', manualName: '', manualPhone: '', manualAddress: '',
-    title: '', description: '', departmentId: config.departments[0]?.id || 'atendimento',
-    priority: 'Média' as 'Baixa' | 'Média' | 'Alta', ownerOperatorId: user.id
+    clientId: '', 
+    clientSearch: '', 
+    manualName: '', 
+    manualPhone: '', 
+    manualAddress: '',
+    title: '', 
+    description: '', 
+    departmentId: config.departments[0]?.id || 'atendimento',
+    priority: 'Média' as 'Baixa' | 'Média' | 'Alta', 
+    ownerOperatorId: user.id
   });
 
   const loadData = React.useCallback(async () => {
@@ -83,6 +90,59 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
       setResolutionResponses({});
     }
   }, [selectedProtocol]);
+
+  const handleCreateProtocol = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProto.title.trim() || !newProto.description.trim()) return alert("Preencha o título e a descrição.");
+    
+    let targetClientId = newProto.clientId;
+
+    setIsProcessing(true);
+    try {
+      // Se não tem cliente selecionado mas tem dados manuais, cria o cliente primeiro
+      if (!targetClientId && newProto.manualName && newProto.manualPhone) {
+        const newClient = await dataService.upsertClient({
+          name: newProto.manualName,
+          phone: newProto.manualPhone,
+          address: newProto.manualAddress
+        });
+        targetClientId = newClient.id;
+      }
+
+      if (!targetClientId) throw new Error("Selecione ou cadastre um cliente.");
+
+      const slaHours = PROTOCOL_SLA[newProto.priority] || 48;
+      const now = new Date();
+      
+      const p: Partial<Protocol> = {
+        clientId: targetClientId,
+        openedByOperatorId: user.id,
+        ownerOperatorId: newProto.ownerOperatorId,
+        departmentId: newProto.departmentId,
+        title: newProto.title.trim(),
+        description: newProto.description.trim(),
+        priority: newProto.priority,
+        status: ProtocolStatus.ABERTO,
+        openedAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        slaDueAt: new Date(now.getTime() + slaHours * 3600000).toISOString()
+      };
+
+      await dataService.saveProtocol(p as Protocol, user.id);
+      setIsNewModalOpen(false);
+      setNewProto({
+        clientId: '', clientSearch: '', manualName: '', manualPhone: '', manualAddress: '',
+        title: '', description: '', departmentId: config.departments[0]?.id || 'atendimento',
+        priority: 'Média', ownerOperatorId: user.id
+      });
+      await loadData();
+      alert("Protocolo aberto com sucesso!");
+    } catch (e: any) {
+      alert(`Erro: ${e.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const handleUpdateStatus = async (pId: string, status: ProtocolStatus, note?: string) => {
     if (status === ProtocolStatus.RESOLVIDO_PENDENTE) {
@@ -161,6 +221,13 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
     return matchSearch && matchStatus && matchDept;
   }).sort((a, b) => new Date(a.slaDueAt).getTime() - new Date(b.slaDueAt).getTime());
 
+  const filteredClientsForSearch = clients.filter(c => 
+    newProto.clientSearch && (
+      c.name.toLowerCase().includes(newProto.clientSearch.toLowerCase()) || 
+      c.phone.includes(newProto.clientSearch)
+    )
+  );
+
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-500">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -231,6 +298,105 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
         {filtered.length === 0 && <div className="py-20 text-center text-slate-300 font-black uppercase text-xs tracking-widest opacity-40">Sem protocolos na lista.</div>}
       </div>
 
+      {/* MODAL NOVO PROTOCOLO */}
+      {isNewModalOpen && (
+        <div className="fixed inset-0 z-[150] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+           <div className="bg-white w-full max-w-2xl rounded-[48px] shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+              <div className="bg-slate-900 p-8 text-white flex justify-between items-center shrink-0">
+                 <h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3">
+                   <ClipboardList className="text-blue-400" /> Abrir Novo Chamado
+                 </h3>
+                 <button onClick={() => setIsNewModalOpen(false)} className="hover:bg-white/10 p-2 rounded-full transition-all"><X size={24} /></button>
+              </div>
+              
+              <form onSubmit={handleCreateProtocol} className="p-10 space-y-6 overflow-y-auto custom-scrollbar">
+                 <div className="space-y-4 bg-slate-50 p-6 rounded-[32px] border border-slate-100">
+                    <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                       <MapPin size={14} /> Identificação do Cliente
+                    </h5>
+                    
+                    {!newProto.clientId ? (
+                      <div className="space-y-3">
+                         <div className="relative">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                            <input 
+                              type="text" 
+                              placeholder="Pesquisar por nome ou celular..." 
+                              value={newProto.clientSearch}
+                              onChange={e => setNewProto({...newProto, clientSearch: e.target.value})}
+                              className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
+                            />
+                         </div>
+                         {filteredClientsForSearch.length > 0 && (
+                            <div className="bg-white border border-slate-200 rounded-2xl p-2 space-y-1 shadow-inner">
+                               {filteredClientsForSearch.slice(0, 5).map(c => (
+                                 <button key={c.id} type="button" onClick={() => setNewProto({...newProto, clientId: c.id, clientSearch: c.name})} className="w-full text-left p-3 hover:bg-blue-50 rounded-xl transition-all flex justify-between items-center">
+                                    <span className="font-black text-slate-800 text-xs uppercase">{c.name}</span>
+                                    <span className="text-[10px] text-blue-500 font-bold">{c.phone}</span>
+                                 </button>
+                               ))}
+                            </div>
+                         )}
+                         <div className="text-center py-2"><span className="text-[9px] font-black text-slate-300 uppercase">Ou cadastre manualmente</span></div>
+                         <div className="grid grid-cols-2 gap-3">
+                            <input type="text" placeholder="Nome Manual" value={newProto.manualName} onChange={e => setNewProto({...newProto, manualName: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-xs" />
+                            <input type="text" placeholder="Telefone Manual" value={newProto.manualPhone} onChange={e => setNewProto({...newProto, manualPhone: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold text-xs" />
+                         </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between items-center p-4 bg-blue-600 text-white rounded-2xl">
+                         <div>
+                            <p className="text-[10px] font-black uppercase opacity-60">Cliente Selecionado</p>
+                            <p className="font-black text-sm uppercase">{clients.find(c => c.id === newProto.clientId)?.name}</p>
+                         </div>
+                         <button type="button" onClick={() => setNewProto({...newProto, clientId: '', clientSearch: ''})} className="p-2 bg-white/20 rounded-full hover:bg-white/30 transition-all"><X size={16} /></button>
+                      </div>
+                    )}
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Assunto do Protocolo</label>
+                       <input type="text" required value={newProto.title} onChange={e => setNewProto({...newProto, title: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-blue-500 transition-all" placeholder="Ex: Equipamento com vazamento..." />
+                    </div>
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Setor Responsável</label>
+                       <select value={newProto.departmentId} onChange={e => setNewProto({...newProto, departmentId: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase outline-none">
+                          {config.departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                       </select>
+                    </div>
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Prioridade (SLA)</label>
+                       <select value={newProto.priority} onChange={e => setNewProto({...newProto, priority: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase outline-none">
+                          <option value="Baixa">Baixa (72h)</option>
+                          <option value="Média">Média (48h)</option>
+                          <option value="Alta">Alta (24h)</option>
+                       </select>
+                    </div>
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Responsável Inicial</label>
+                       <select value={newProto.ownerOperatorId} onChange={e => setNewProto({...newProto, ownerOperatorId: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[10px] uppercase outline-none">
+                          {operators.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                       </select>
+                    </div>
+                 </div>
+
+                 <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Descrição do Problema / Solicitação</label>
+                    <textarea required value={newProto.description} onChange={e => setNewProto({...newProto, description: e.target.value})} className="w-full p-6 bg-slate-50 border border-slate-200 rounded-[32px] font-bold text-sm h-32 resize-none outline-none focus:border-blue-500 transition-all" placeholder="Relate o que o cliente informou..." />
+                 </div>
+
+                 <button type="submit" disabled={isProcessing} className="w-full py-6 bg-slate-900 text-white rounded-[32px] font-black uppercase tracking-widest text-[11px] shadow-2xl flex items-center justify-center gap-3 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                    {isProcessing ? <Loader2 className="animate-spin" size={20} /> : <CheckCircle2 size={20} />} Abrir Registro e Notificar Responsável
+                 </button>
+              </form>
+           </div>
+        </div>
+      )}
+
       {/* MODAL DETALHES PROTOCOLO */}
       {selectedProtocol && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4 overflow-hidden">
@@ -279,7 +445,7 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
                       </section>
                     )}
                     
-                    {/* ÁREA DE RESOLUÇÃO FINAL (SÓ QUANDO EM ANDAMENTO) */}
+                    {/* ÁREA DE RESOLUÇÃO FINAL */}
                     {selectedProtocol.status === ProtocolStatus.EM_ANDAMENTO && selectedProtocol.ownerOperatorId === user.id && (
                        <section className="space-y-8 p-10 bg-emerald-50/30 rounded-[48px] border-2 border-emerald-200 animate-in slide-in-from-bottom-4">
                           <h4 className="text-[11px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-3"><ListChecks size={22} /> Auditoria de Encerramento Obrigatória</h4>
@@ -366,7 +532,7 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
         </div>
       )}
 
-      {/* MODAL DE REATRIBUIÇÃO (FIXED) */}
+      {/* MODAL DE REATRIBUIÇÃO */}
       {reassignTarget && (
         <div className="fixed inset-0 z-[300] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
            <div className="bg-white w-full max-w-md rounded-[48px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
@@ -434,8 +600,6 @@ const Protocols: React.FC<{ user: UserType }> = ({ user }) => {
            </div>
         </div>
       )}
-      
-      {/* MODAL NOVO PROTOCOLO OMITIDO... */}
     </div>
   );
 };
