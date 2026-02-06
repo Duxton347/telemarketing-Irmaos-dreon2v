@@ -45,7 +45,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         
         setIsRegistering(false);
         setPassword('');
-        setError('Conta administrativa criada! Entre agora.');
+        setError('Conta administrativa criada com sucesso! Você já pode entrar.');
       } else {
         const user = await dataService.signIn(inputVal, password);
         onLogin(user);
@@ -54,12 +54,17 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       const msg = err.message || '';
       console.error("[Login View Error]", err);
       
-      if (msg.includes('limite') || msg.includes('rate limit')) {
+      // Correção da verificação de erro: 'incorretas' (feminino) vs 'incorretos' (masculino)
+      const normalizedMsg = msg.toLowerCase();
+      
+      if (normalizedMsg.includes('limite') || normalizedMsg.includes('rate limit')) {
         setError('Bloqueio Temporário: O servidor detectou muitas tentativas. Aguarde 15 minutos.');
-      } else if (msg.includes('incorretos') || msg.includes('credentials')) {
-        setError('Credenciais Inválidas: Verifique seu nome de usuário (ex: joao) e sua senha.');
+      } else if (normalizedMsg.includes('incorret') || normalizedMsg.includes('credential') || normalizedMsg.includes('inválid')) {
+        setError('Acesso Negado: Usuário ou senha não encontrados. Tente "admin" para o primeiro acesso.');
+      } else if (normalizedMsg.includes('network') || normalizedMsg.includes('fetch')) {
+        setError('Erro de Conexão: Verifique sua internet ou as configurações do banco de dados.');
       } else {
-        setError(msg || 'Erro ao conectar. Tente novamente em instantes.');
+        setError(msg || 'Erro inesperado ao conectar. Tente novamente em instantes.');
       }
     } finally {
       setLoading(false);
@@ -82,7 +87,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         
         <form onSubmit={handleSubmit} className="p-10 space-y-5">
           {error && (
-            <div className={`p-4 rounded-2xl text-[11px] border font-bold flex items-center gap-3 animate-in shake ${error.includes('sucesso') || error.includes('criada') ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
+            <div className={`p-4 rounded-2xl text-[11px] border font-bold flex items-center gap-3 animate-in shake ${error.includes('sucesso') ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
               <ShieldAlert size={16} className="shrink-0" />
               <span className="flex-1 leading-relaxed">{error}</span>
             </div>
@@ -112,7 +117,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full pl-11 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none transition-all font-bold text-slate-700"
-                placeholder="admin ou joao"
+                placeholder="admin ou seu_usuario"
                 required
               />
             </div>

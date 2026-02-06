@@ -16,51 +16,51 @@ CREATE OR REPLACE FUNCTION is_supervisor() RETURNS boolean AS $$
   SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('ADMIN', 'SUPERVISOR'));
 $$ LANGUAGE sql SECURITY DEFINER;
 
--- 3. LIMPEZA E CRIAÇÃO DE POLÍTICAS
-DO $$ 
-BEGIN
-    -- TAREFAS (ATUALIZADO COM DELETE)
-    DROP POLICY IF EXISTS "Visualização de tarefas" ON public.tasks;
-    DROP POLICY IF EXISTS "Admins criam tarefas" ON public.tasks;
-    DROP POLICY IF EXISTS "Operadores atualizam status de suas tarefas" ON public.tasks;
-    DROP POLICY IF EXISTS "Admins deletam tarefas da fila" ON public.tasks;
-    
-    CREATE POLICY "Visualização de tarefas" ON public.tasks FOR SELECT USING (is_supervisor() OR assigned_to = auth.uid());
-    CREATE POLICY "Admins criam tarefas" ON public.tasks FOR INSERT WITH CHECK (is_supervisor());
-    CREATE POLICY "Operadores atualizam status de suas tarefas" ON public.tasks FOR UPDATE 
-    USING (assigned_to = auth.uid() OR is_supervisor())
-    WITH CHECK (assigned_to = auth.uid() OR is_supervisor());
-    
-    -- ESTA É A REGRA QUE ESTAVA FALTANDO:
-    CREATE POLICY "Admins deletam tarefas da fila" ON public.tasks FOR DELETE USING (is_supervisor());
+CREATE OR REPLACE FUNCTION can_manage_tasks() RETURNS boolean AS $$
+  SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('ADMIN', 'SUPERVISOR'));
+$$ LANGUAGE sql SECURITY DEFINER;
 
-    -- PROFILES
-    DROP POLICY IF EXISTS "Profiles são visíveis por todos autenticados" ON public.profiles;
-    DROP POLICY IF EXISTS "Usuários criam seu próprio perfil" ON public.profiles;
-    DROP POLICY IF EXISTS "Somente Admins atualizam perfis" ON public.profiles;
-    CREATE POLICY "Profiles são visíveis por todos autenticados" ON public.profiles FOR SELECT USING (auth.role() = 'authenticated');
-    CREATE POLICY "Usuários criam seu próprio perfil" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
-    CREATE POLICY "Somente Admins atualizam perfis" ON public.profiles FOR UPDATE USING (is_admin());
+-- 3. POLÍTICAS POR PAPEL
 
-    -- CLIENTES
-    DROP POLICY IF EXISTS "Clientes visíveis por todos" ON public.clients;
-    DROP POLICY IF EXISTS "Qualquer operador insere cliente" ON public.clients;
-    DROP POLICY IF EXISTS "Operadores e Admins atualizam clientes" ON public.clients;
-    CREATE POLICY "Clientes visíveis por todos" ON public.clients FOR SELECT USING (true);
-    CREATE POLICY "Qualquer operador insere cliente" ON public.clients FOR INSERT WITH CHECK (auth.role() = 'authenticated');
-    CREATE POLICY "Operadores e Admins atualizam clientes" ON public.clients FOR UPDATE USING (auth.role() = 'authenticated');
+-- TAREFAS
+DROP POLICY IF EXISTS "Visualização de tarefas" ON public.tasks;
+CREATE POLICY "Visualização de tarefas" ON public.tasks FOR SELECT 
+USING (is_supervisor() OR assigned_to = auth.uid());
 
-    -- CHAMADAS
-    DROP POLICY IF EXISTS "Visualização de chamadas (Admin tudo, Operator próprio)" ON public.call_logs;
-    DROP POLICY IF EXISTS "Operador insere própria chamada" ON public.call_logs;
-    CREATE POLICY "Visualização de chamadas (Admin tudo, Operator próprio)" ON public.call_logs FOR SELECT USING (is_supervisor() OR operator_id = auth.uid());
-    CREATE POLICY "Operador insere própria chamada" ON public.call_logs FOR INSERT WITH CHECK (operator_id = auth.uid());
+DROP POLICY IF EXISTS "Gestão de tarefas" ON public.tasks;
+CREATE POLICY "Gestão de tarefas" ON public.tasks FOR ALL 
+USING (can_manage_tasks());
 
-    -- PROTOCOLOS
-    DROP POLICY IF EXISTS "Visualização de protocolos" ON public.protocols;
-    DROP POLICY IF EXISTS "Operador cria protocolo" ON public.protocols;
-    DROP POLICY IF EXISTS "Update de protocolo" ON public.protocols;
-    CREATE POLICY "Visualização de protocolos" ON public.protocols FOR SELECT USING (is_supervisor() OR opened_by_id = auth.uid() OR owner_id = auth.uid());
-    CREATE POLICY "Operador cria protocolo" ON public.protocols FOR INSERT WITH CHECK (auth.role() = 'authenticated');
-    CREATE POLICY "Update de protocolo" ON public.protocols FOR UPDATE USING (is_supervisor() OR owner_id = auth.uid());
-END $$;
+-- CLIENTES
+DROP POLICY IF EXISTS "Clientes visíveis por todos autenticados" ON public.clients;
+CREATE POLICY "Clientes visíveis por todos autenticados" ON public.clients FOR SELECT 
+USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Edição de clientes restrita" ON public.clients;
+CREATE POLICY "Edição de clientes restrita" ON public.clients FOR UPDATE 
+USING (is_supervisor() OR is_admin());
+
+-- CHAMADAS (Logs)
+DROP POLICY IF EXISTS "Visualização de chamadas" ON public.call_logs;
+CREATE POLICY "Visualização de chamadas" ON public.call_logs FOR SELECT 
+USING (is_supervisor() OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'ANALISTA_MARKETING'));
+
+-- PROFILES
+-- Permitir leitura para verificação de login (necessário para signIn)
+DROP POLICY IF EXISTS "Perfis legíveis para login" ON public.profiles;
+CREATE POLICY "Perfis legíveis para login" ON public.profiles FOR SELECT 
+USING (true);
+
+-- Permitir inserção inicial ou por Admin (necessário para createUser)
+DROP POLICY IF EXISTS "Permitir criação de perfil" ON public.profiles;
+CREATE POLICY "Permitir criação de perfil" ON public.profiles FOR INSERT 
+WITH CHECK (true);
+
+-- Apenas Admin atualiza ou deleta perfis
+DROP POLICY IF EXISTS "Admins gerenciam perfis" ON public.profiles;
+CREATE POLICY "Admins gerenciam perfis" ON public.profiles FOR UPDATE 
+USING (is_admin());
+
+DROP POLICY IF EXISTS "Admins deletam perfis" ON public.profiles;
+CREATE POLICY "Admins deletam perfis" ON public.profiles FOR DELETE 
+USING (is_admin());
